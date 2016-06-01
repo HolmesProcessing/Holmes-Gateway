@@ -6,9 +6,10 @@ import (
 	"log"
 	"os"
 	"flag"
-	"errors"
-	//"crypto/aes"
-	//"crypto/cipher"
+	//"errors"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"path/filepath"
 	"github.com/julienschmidt/httprouter"
 )
@@ -20,9 +21,10 @@ type config struct {
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
 // encrypted with the asymmetric key in KeyFingerprint
 type EncryptedTask struct {
-	KeyFingerprint  string `json:"asymkey"`
-	EncryptedKey    []byte `json:"symkey"`
+	KeyFingerprint  string
+	EncryptedKey    []byte
 	Encrypted       []byte
+	IV              []byte
 }
 
 type Task struct {
@@ -31,50 +33,52 @@ type Task struct {
 	//TODO
 }
 
-func aesDecrypt(text []byte, key []byte) (error, []byte) {
-	//TODO
-	return nil, text
-}
-
-func rsaDecrypt(text []byte, key []byte) (error, []byte) {
-	//TODO
-	return nil, text
-}
-
-func decrypt(encrypted string) (error, string) {
-	var enc []EncryptedTask
-	if err := json.Unmarshal([]byte(encrypted), &enc); err != nil {
-		return err, ""
-	} else if len(enc) != 1 {
-		return errors.New("Only one encrypted task per request!"), ""
+func aesDecrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return []byte(""), err
 	}
-	log.Printf("Parsed: %+v\n", enc)
-	//TODO: Fetch private key corresponding to enc[0].keyFingerprint (from where?)
-	asymKey := []byte(enc[0].KeyFingerprint)
+	log.Printf("Blocksize: %d\n", block.BlockSize())
+	//TODO: Think about it! is this secure?
+	mode := cipher.NewCBCDecrypter(block, iv)
+
+	// CryptBlocks can work in-place if the two arguments are the same.
+	mode.CryptBlocks(ciphertext, ciphertext)
+	return ciphertext, nil
+}
+
+func rsaDecrypt(text []byte, key []byte) ([]byte, error) {
+	//TODO
+	return text, nil
+}
+
+func decryptTask(enc *EncryptedTask) (string, error) {
+	//TODO: Fetch private key corresponding to enc.keyFingerprint (from where?)
+	asymKey := []byte(enc.KeyFingerprint)
 	
 	//TODO: Actually implement decryption-function!
 	//      For now: dec(a) = a
 	// Decrypt symmetric key using the asymmetric key
-	err, symKey := rsaDecrypt(enc[0].EncryptedKey, asymKey)
+	symKey, err := rsaDecrypt(enc.EncryptedKey, asymKey)
 	if err != nil{
-		return err, ""
+		return "", err
 	}
 
 	//TODO: Actually implement decryption-function!
 	//      For now: dec(a) = a
 	// Decrypt using the symmetric key
-	err, decrypted := aesDecrypt(enc[0].Encrypted, symKey)
-	return err, string(decrypted)
+	decrypted, err := aesDecrypt(enc.Encrypted, symKey, enc.IV)
+	return string(decrypted), err
 }
 
-func validate(task string) (error, []Task) {
+func validateTask(task string) ([]Task, error) {
 	var tasks []Task
 	err := json.Unmarshal([]byte(task), &tasks)
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 	//TODO Check for required fields; Additional checks?
-	return err, tasks
+	return tasks, err
 }
 
 func checkACL(task Task) (error){
@@ -82,16 +86,42 @@ func checkACL(task Task) (error){
 	return nil
 }
 
+func decodeTask(r *http.Request) (*EncryptedTask, error) {
+	ek, err := base64.StdEncoding.DecodeString(r.FormValue("EncryptedKey"))
+	if err != nil {
+		return nil, err
+	}
+	iv, err := base64.StdEncoding.DecodeString(r.FormValue("iv"))
+	if err != nil {
+		return nil, err
+	}
+	en, err := base64.StdEncoding.DecodeString(r.FormValue("Encrypted"))
+	if err != nil {
+		return nil, err
+	}
+
+	task := EncryptedTask{
+		KeyFingerprint : r.FormValue("KeyFingerprint"),
+		EncryptedKey   : ek,
+		Encrypted      : en,
+		IV             : iv	}
+	log.Printf("New task request:\n%+v\n", task);
+	return &task, err
+}
+
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	task := ps.ByName("name")[1:]
-	log.Println("New task request:\n" + task);
-	err, decTask := decrypt(task)
+	task, err := decodeTask(r)
+	if err != nil {
+		log.Println("Error while decoding: ", err)
+		return
+	}
+	decTask, err := decryptTask(task)
 	if err != nil {
 		log.Println("Error while decrypting: ", err)
 		return
 	}
 	log.Println("Decrypted task:", decTask)
-	err, tasks := validate(decTask)
+	tasks, err := validateTask(decTask)
 	if err != nil {
 		log.Println("Error while validating: ", err)
 		return
@@ -104,11 +134,14 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request, ps httprouter.P
 		}
 	}
 	log.Printf("%+v", tasks)
+
+	// TODO: push to transport
 }
 
 func initHTTP(httpBinding string) {
 	router := httprouter.New()
 	router.GET("/task/*name", httpRequestIncoming)
+	log.Printf("Listening on %s\n", httpBinding)
 	log.Fatal(http.ListenAndServe(httpBinding, router))
 }
 

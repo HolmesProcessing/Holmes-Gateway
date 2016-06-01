@@ -1,0 +1,33 @@
+<html>
+	<body>
+		<form name="subm" action = "http://localhost:8080/task/" method="GET">
+			<p>Key Fingerprint</p>
+			<input type="text" name="KeyFingerprint">
+			<p>Encrypted Key</p>
+			<input type="text" id="EncryptedKey_" oninput="encKey();">
+			<input type="text" name="EncryptedKey">
+			<p>Encrypted Task</p>
+			<input type="text" id="Encrypted_" oninput="enc();">
+			<input type="text" name="Encrypted">
+			<p>IV</p>
+			<input type="text" id="iv_" oninput="encIv();">
+			<input type="text" name="iv">
+			
+			<input type="submit">
+		</form>
+		<script>
+		function enc()
+		{
+			document.subm.Encrypted.value = btoa(document.subm.Encrypted_.value);	
+		}
+		function encKey()
+		{
+			document.subm.EncryptedKey.value = btoa(document.subm.EncryptedKey_.value);
+		}
+		function encIv()
+		{
+			document.subm.iv.value = btoa(document.subm.iv_.value);
+		}
+		</script>
+	</body>
+</html>
