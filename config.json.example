@@ -1,3 +1,4 @@
 {
-	"HTTP": ":8080"
+	"HTTP": ":8080",
+	"KeyPath": "keys"
 }

@@ -1,21 +1,27 @@
 package main
 
 import (
+	//"strings"
+	"io/ioutil"
 	"encoding/json"
 	"net/http"
 	"log"
 	"os"
 	"flag"
 	//"errors"
+	"crypto/rsa"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/x509"
+	"encoding/pem"
 	"encoding/base64"
 	"path/filepath"
 	"github.com/julienschmidt/httprouter"
 )
 
 type config struct {
-	HTTP string
+	HTTP    string
+	KeyPath string
 }
 
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
@@ -32,6 +38,8 @@ type Task struct {
 	SampleID string
 	//TODO
 }
+
+var keys map[string]rsa.PrivateKey
 
 func aesDecrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
@@ -138,6 +146,39 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request, ps httprouter.P
 	// TODO: push to transport
 }
 
+func keyWalkFn(path string, fi os.FileInfo, err error) (error) {
+	if fi.IsDir(){
+		return nil
+	}
+	if !(filepath.Ext(path) == ".priv"){
+		return nil
+	}
+	log.Println(path)
+	f, err := ioutil.ReadFile(path)
+	if err != nil{
+		log.Fatal("Error reading key (Read) ", err)
+	}
+	priv, rem := pem.Decode(f)
+	if len(rem) != 0 {
+		log.Fatal("Error reading key (Decode)", rem)
+	}
+	key, err := x509.ParsePKCS1PrivateKey(priv.Bytes)
+	if err != nil {
+		log.Fatal("Error reading key (Parse)", err)
+	}
+
+	// strip the path from its directory and ".priv"-extension
+	path = filepath.Base(path)
+	path = path[:len(path)-5]
+	keys[path] = rsa.PrivateKey(*key)
+	return nil
+}
+
+func readKeys(path string) (error) {
+	err := filepath.Walk(path, keyWalkFn)
+	return err
+}
+
 func initHTTP(httpBinding string) {
 	router := httprouter.New()
 	router.GET("/task/*name", httpRequestIncoming)
@@ -160,6 +201,11 @@ func main() {
 	if err := json.NewDecoder(cfile).Decode(&conf); err != nil {
 		log.Fatal("Couldn't read config file! ", err)
 	}
+
+	keys = make(map[string]rsa.PrivateKey)
+	readKeys(conf.KeyPath)
+	//TODO remove printing of private keys, as it creates a security risk!!!
+	log.Println(keys)
 
 	initHTTP(conf.HTTP)
 }
