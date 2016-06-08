@@ -5,6 +5,21 @@ import (
 	"encoding/base64"
 	)
 
+func TestRSA(t *testing.T) {
+	rsakey,_ := loadKey("keys/blub.priv")
+	p1 := "This is a test for RSA!!!"
+	c, err := rsaEncrypt([]byte(p1), &rsakey)
+	if err != nil {
+		t.Error(err)
+	}
+	p2, err := rsaDecrypt(c, &rsakey)
+	if err != nil {
+		t.Error(err)
+	} else if (p1 != string(p2)) {
+		t.Error("should be '", p1, "' is '", string(p2), "'")
+	}
+}
+
 func TestValidateTask(t *testing.T) {
 	task := "[{\"User\":\"u1\", \"SampleID\":\"s1\"}]"
 	v, err := validateTask(task)
