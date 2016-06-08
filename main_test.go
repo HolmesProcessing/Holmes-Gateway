@@ -7,11 +7,12 @@ import (
 
 func TestRSA(t *testing.T) {
 	rsakey,_ := loadKey("keys/blub.priv")
-	p1 := "This is a test for RSA!!!"
+	p1 := "abcdef0123456789"
 	c, err := rsaEncrypt([]byte(p1), &rsakey)
 	if err != nil {
 		t.Error(err)
 	}
+	print(base64.StdEncoding.EncodeToString(c))
 	p2, err := rsaDecrypt(c, &rsakey)
 	if err != nil {
 		t.Error(err)

@@ -19,7 +19,6 @@ import (
 	"encoding/pem"
 	"encoding/base64"
 	"path/filepath"
-	"github.com/julienschmidt/httprouter"
 	"github.com/howeyc/fsnotify"
 )
 
@@ -127,7 +126,7 @@ func decodeTask(r *http.Request) (*EncryptedTask, error) {
 	return &task, err
 }
 
-func httpRequestIncoming(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	task, err := decodeTask(r)
 	if err != nil {
 		log.Println("Error while decoding: ", err)
@@ -255,10 +254,11 @@ func readKeys(path string) {
 }
 
 func initHTTP(httpBinding string) {
-	router := httprouter.New()
-	router.GET("/task/*name", httpRequestIncoming)
+	//router := httprouter.New()
+	//router.GET("/task/*name", httpRequestIncoming)
+	http.HandleFunc("/task/", httpRequestIncoming)
 	log.Printf("Listening on %s\n", httpBinding)
-	log.Fatal(http.ListenAndServe(httpBinding, router))
+	log.Fatal(http.ListenAndServe(httpBinding, nil))
 }
 
 func main() {
