@@ -20,11 +20,18 @@ import (
 	"encoding/base64"
 	"path/filepath"
 	"github.com/howeyc/fsnotify"
+	"github.com/streadway/amqp"
 )
 
 type config struct {
-	HTTP    string
-	KeyPath string
+	HTTP           string
+	KeyPath        string
+	RabbitURI      string
+	RabbitUser     string
+	RabbitPassword string
+	RabbitQueue    string
+	RoutingKey     string
+	Exchange       string
 }
 
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
@@ -37,26 +44,41 @@ type EncryptedTask struct {
 }
 
 type Task struct {
-	User     string
-	SampleID string
-	//TODO
+	PrimaryURI     string              `json:"primaryURI"`
+	SecondaryURI   string              `json:"secondaryURI"`
+	Filename       string              `json:"filename"`
+	Tasks          map[string][]string `json:"tasks"`
+	Tags           []string            `json:"tags"`
+	Attempts       int                 `json:"attempts"`
 }
 
+var conf *config
 var keys map[string]rsa.PrivateKey
 var keysMutex = &sync.Mutex{}
+var rabbitChannel *amqp.Channel
+var rabbitQueue amqp.Queue
 
-func aesDecrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
+//TODO: Padding
+func aesEncrypt(plaintext []byte, key []byte, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return []byte(""), err
 	}
-	log.Printf("Blocksize: %d\n", block.BlockSize())
-	//TODO: Think about it! is this secure?
-	mode := cipher.NewCBCDecrypter(block, iv)
-
-	// CryptBlocks can work in-place if the two arguments are the same.
-	mode.CryptBlocks(ciphertext, ciphertext)
+	mode := cipher.NewCBCEncrypter(block, iv)
+	ciphertext := make([]byte,len(plaintext))
+	mode.CryptBlocks(ciphertext,plaintext)
 	return ciphertext, nil
+}
+
+func aesDecrypt(ciphertext []byte, key []byte, iv []byte) ( []byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return []byte(""), err
+	}
+	mode := cipher.NewCBCDecrypter(block, iv)
+	plaintext := make([]byte,len(ciphertext))
+	mode.CryptBlocks(plaintext,ciphertext)
+	return plaintext, nil
 }
 
 func rsaEncrypt(plaintext []byte, key *rsa.PrivateKey) ([]byte, error) {
@@ -82,6 +104,7 @@ func decryptTask(enc *EncryptedTask) (string, error) {
 	if err != nil{
 		return "", err
 	}
+	log.Printf("Symmetric Key: %s\n", symKey)
 
 	// Decrypt using the symmetric key
 	decrypted, err := aesDecrypt(enc.Encrypted, symKey, enc.IV)
@@ -108,7 +131,7 @@ func decodeTask(r *http.Request) (*EncryptedTask, error) {
 	if err != nil {
 		return nil, err
 	}
-	iv, err := base64.StdEncoding.DecodeString(r.FormValue("iv"))
+	iv, err := base64.StdEncoding.DecodeString(r.FormValue("IV"))
 	if err != nil {
 		return nil, err
 	}
@@ -147,28 +170,45 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 		err = checkACL(tasks[i])
 		if err != nil {
 			log.Println("Error while checking ACL: ", err)
-			return
+			continue
 		}
-	}
-	log.Printf("%+v", tasks)
+		// Push to transport
+		log.Printf("%+v\n", tasks[i])
+		msgBody, err := json.Marshal(tasks[i])
+		if err != nil {
+			log.Println("Error while Marshalling: ", err)
+		}
+		log.Printf("marshalled: %s\n", msgBody)
+		err = rabbitChannel.Publish(
+			conf.Exchange,    // exchange
+			conf.RoutingKey,  // key
+			false,            // mandatory
+			false,            // immediate
+			amqp.Publishing {DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: []byte(msgBody),}) //msg
+		if err != nil {
+			log.Println("Error while pushing to transport: ", err)
+			continue
+		}
 
-	// TODO: push to transport
+	}
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
 }
 
 func loadKey(path string)(rsa.PrivateKey, string){
 	log.Println(path)
 	f, err := ioutil.ReadFile(path)
-	if err != nil{
-		log.Fatal("Error reading key (Read) ", err)
-	}
+	failOnError(err, "Error reading key (Read)")
 	priv, rem := pem.Decode(f)
 	if len(rem) != 0 {
 		log.Fatal("Error reading key (Decode) ", rem)
 	}
 	key, err := x509.ParsePKCS1PrivateKey(priv.Bytes)
-	if err != nil {
-		log.Fatal("Error reading key (Parse) ", err)
-	}
+	failOnError(err, "Error reading key (Parse)")
 
 	// strip the path from its directory and ".priv"-extension
 	path = filepath.Base(path)
@@ -191,17 +231,13 @@ func keyWalkFn(path string, fi os.FileInfo, err error) (error) {
 	return nil
 }
 
-func readKeys(path string) {
-	err := filepath.Walk(path, keyWalkFn)
-	if err != nil {
-		log.Fatal("Error loading keys ", err)
-	}
+func readKeys() {
+	err := filepath.Walk(conf.KeyPath, keyWalkFn)
+	failOnError(err, "Error loading keys ")
 
 	// Setup directory watcher
 	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
+	failOnError(err, "Error setting up directory-watcher")
 
 	// Process events
 	go func() {
@@ -237,8 +273,7 @@ func readKeys(path string) {
 						keys[name] = key
 						keysMutex.Unlock()
 					}
-					//TODO remove printing of private keys
-					log.Println(keys)
+					//log.Println(keys)
 
 				}
 			case err := <-watcher.Error:
@@ -247,21 +282,62 @@ func readKeys(path string) {
 		}
 	}()
 
-	err = watcher.Watch(path)
-	if err != nil {
-		log.Fatal(err)
-	}
+	err = watcher.Watch(conf.KeyPath)
+
+	failOnError(err, "Error setting up directory-watcher")
 }
 
-func initHTTP(httpBinding string) {
-	//router := httprouter.New()
-	//router.GET("/task/*name", httpRequestIncoming)
+func connectRabbit() {
+	conn, err := amqp.Dial("amqp://"+conf.RabbitUser+":"+conf.RabbitPassword+"@"+conf.RabbitURI)
+	failOnError(err, "Failed to connect to RabbitMQ")
+	//defer conn.Close()
+
+	rabbitChannel, err = conn.Channel()
+	failOnError(err, "Failed to open a channel")
+	//defer rabbitChannel.Close()
+
+	rabbitQueue, err = rabbitChannel.QueueDeclare(
+		conf.RabbitQueue, //name
+		true,             // durable
+		false,            // delete when unused
+		false,            // exclusive
+		false,            // no-wait
+		nil,              // arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	err = rabbitChannel.ExchangeDeclare(
+		conf.Exchange,   // name
+		"topic",         // type
+		true,            // durable
+		false,           // auto-deleted
+		false,           // internal
+		false,           // no-wait
+		nil,             // arguments
+	)
+	failOnError(err, "Failed to declare an exchange")
+
+	err = rabbitChannel.QueueBind(
+		rabbitQueue.Name, // queue name
+		conf.RoutingKey,  // routing key
+		conf.Exchange,    // exchange
+		false,            // nowait
+		nil,              // arguments
+	)
+	failOnError(err, "Failed to bind queue")
+
+	log.Printf("Connected to Rabbit on channel %s\n", rabbitQueue.Name)
+}
+
+func initHTTP() {
 	http.HandleFunc("/task/", httpRequestIncoming)
-	log.Printf("Listening on %s\n", httpBinding)
-	log.Fatal(http.ListenAndServe(httpBinding, nil))
+	log.Printf("Listening on %s\n", conf.HTTP)
+	log.Fatal(http.ListenAndServe(conf.HTTP, nil))
 }
 
 func main() {
+
+	// Parse the configuration
 	var confPath string
 	flag.StringVar(&confPath, "config", "", "Path to the config file")
 	flag.Parse()
@@ -271,16 +347,19 @@ func main() {
 		confPath += "/config.json"
 	}
 
-	conf := &config{}
+	conf = &config{}
 	cfile, _ := os.Open(confPath)
-	if err := json.NewDecoder(cfile).Decode(&conf); err != nil {
-		log.Fatal("Couldn't read config file! ", err)
-	}
-
+	err := json.NewDecoder(cfile).Decode(&conf)
+	failOnError(err, "Couldn't read config file")
+	
+	// Parse the private keys
 	keys = make(map[string]rsa.PrivateKey)
-	readKeys(conf.KeyPath)
-	//TODO remove printing of private keys, as it creates a security risk!!!
-	log.Println(keys)
+	readKeys()
+	//log.Println(keys)
 
-	initHTTP(conf.HTTP)
+	// Connect to rabbitmq
+	connectRabbit()
+
+	// Setup the HTTP-listener
+	initHTTP()
 }

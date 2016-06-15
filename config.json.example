@@ -1,4 +1,10 @@
 {
-	"HTTP": ":8080",
-	"KeyPath": "keys"
+	"HTTP":           ":8080",
+	"KeyPath":        "keys",
+	"RabbitURI":      "localhost:5672/",
+	"RabbitUser":     "guest",
+	"RabbitPassword": "guest",
+	"RabbitQueue":    "totem_input",
+	"RoutingKey":     "work.static.totem",
+	"Exchange":       "totem"
 }

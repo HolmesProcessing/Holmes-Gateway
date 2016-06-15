@@ -10,8 +10,8 @@
 			<input type="text" id="Encrypted_" oninput="enc();">
 			<input type="text" name="Encrypted">
 			<p>IV</p>
-			<input type="text" id="iv_" oninput="encIv();">
-			<input type="text" name="iv">
+			<input type="text" id="IV_" oninput="encIv();">
+			<input type="text" name="IV">
 			
 			<input type="submit">
 		</form>
@@ -26,7 +26,7 @@
 		}
 		function encIv()
 		{
-			document.subm.iv.value = btoa(document.subm.iv_.value);
+			document.subm.IV.value = btoa(document.subm.IV_.value);
 		}
 		</script>
 	</body>
