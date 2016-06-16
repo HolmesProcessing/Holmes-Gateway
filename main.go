@@ -9,7 +9,8 @@ import (
 	"os"
 	"flag"
 	"sync"
-	//"errors"
+	"bytes"
+	"errors"
 	"crypto/sha256"
 	"crypto/rsa"
 	"crypto/aes"
@@ -58,15 +59,19 @@ var keysMutex = &sync.Mutex{}
 var rabbitChannel *amqp.Channel
 var rabbitQueue amqp.Queue
 
-//TODO: Padding
 func aesEncrypt(plaintext []byte, key []byte, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return []byte(""), err
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
+	//ciphertext := make([]byte,len(plaintext)+mode.BlockSize-(len(plaintext)%mode.BlockSize))
+	padLength := mode.BlockSize()-len(plaintext)%mode.BlockSize()
 	ciphertext := make([]byte,len(plaintext))
-	mode.CryptBlocks(ciphertext,plaintext)
+	copy(ciphertext, plaintext)
+	ciphertext = append(ciphertext, bytes.Repeat([]byte{byte(padLength)}, padLength)...)
+	
+	mode.CryptBlocks(ciphertext,ciphertext)
 	return ciphertext, nil
 }
 
@@ -78,6 +83,14 @@ func aesDecrypt(ciphertext []byte, key []byte, iv []byte) ( []byte, error) {
 	mode := cipher.NewCBCDecrypter(block, iv)
 	plaintext := make([]byte,len(ciphertext))
 	mode.CryptBlocks(plaintext,ciphertext)
+	if len(plaintext) == 0 {
+		return []byte(""), errors.New("Empty plaintext")
+	}
+	padLength := int(plaintext[len(plaintext)-1])
+	if padLength > len(plaintext) {
+		return []byte(""), errors.New("Invalid padding size")
+	}
+	plaintext = plaintext[:len(plaintext)-padLength]
 	return plaintext, nil
 }
 

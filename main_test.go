@@ -37,7 +37,7 @@ func TestValidateTask(t *testing.T) {
 }
 
 func TestAESDecrypt(t *testing.T) {
-	ciphertext, err := base64.StdEncoding.DecodeString("H6bNAXHIFpgqeJ2Kd+SJOg==")
+	ciphertext, err := base64.StdEncoding.DecodeString("H6bNAXHIFpgqeJ2Kd+SJOnBjz94QSGAy+OeP096SZDM=")
 
 	if err != nil {
 		t.Error(err)
@@ -47,7 +47,7 @@ func TestAESDecrypt(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else if (string(v) != ("test encryption!")) {
-		t.Error("Should be 'test encryption!' ", string(v))
+		t.Error("Should be 'test encryption!' ", string(v), v)
 	}
 }
 
@@ -58,7 +58,7 @@ func TestAES(t *testing.T) {
 		SecondaryURI : "www.samples2.com/efgh",
 		Filename : "myfile",
 		Tasks: map[string][]string{"PEINFO": []string{""}, "YARA": []string{""}},
-		Tags : []string{"asdfjklas", "test"},
+		Tags : []string{"test1"},
 		Attempts : 5 }
 
 	task, err := json.Marshal([]Task{ta})
@@ -82,6 +82,6 @@ func TestAES(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else if (string(plaintext2) != string(plaintext)) {
-		t.Error("Should be '", string(plaintext),"' ", string(plaintext2))
+		t.Error("Should be", len(string(plaintext)), len(string(plaintext2)), "\n", plaintext,"\n", plaintext2)
 	}
 }
