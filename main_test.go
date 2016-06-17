@@ -25,13 +25,22 @@ func TestRSA(t *testing.T) {
 }
 
 func TestValidateTask(t *testing.T) {
-	PrimaryURI := "www.samples.com"
-	SecondaryURI := "www.samples2.com"
-	task := "[{\"primaryURI\":\""+PrimaryURI+"\", \"secondaryURI\":\""+SecondaryURI+"\", \"attempts\": 10}]"
-	v, err := validateTask(task)
+	ta := Task{
+		PrimaryURI : "http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5",
+		SecondaryURI : "",
+		Filename : "myfile",
+		Tasks: map[string][]string{"PEINFO": []string{""}, "YARA": []string{""}},
+		Tags : []string{"test1"},
+		Attempts : 0 }
+
+	task, err := json.Marshal([]Task{ta})
 	if err != nil {
 		t.Error(err)
-	} else if ((v[0].PrimaryURI != PrimaryURI) || (v[0].SecondaryURI != SecondaryURI)) {
+	}
+	v, err := validateTask(string(task))
+	if err != nil {
+		t.Error(err)
+	} else if ((v[0].PrimaryURI != ta.PrimaryURI) || (v[0].SecondaryURI != ta.SecondaryURI)) {
 		t.Error("Error: ", v)
 	}
 }
@@ -42,7 +51,7 @@ func TestAESDecrypt(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	
+
 	v, err := aesDecrypt(ciphertext, []byte("abcdef0123456789"), []byte("0000111122223333"))
 	if err != nil {
 		t.Error(err)
@@ -54,8 +63,8 @@ func TestAESDecrypt(t *testing.T) {
 func TestAES(t *testing.T) {
 	print("AES-Test\n")
 	ta := Task{
-		PrimaryURI : "www.samples1.com/abcd",
-		SecondaryURI : "www.samples2.com/efgh",
+		PrimaryURI : "http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5",
+		SecondaryURI : "",
 		Filename : "myfile",
 		Tasks: map[string][]string{"PEINFO": []string{""}, "YARA": []string{""}},
 		Tags : []string{"test1"},
@@ -70,9 +79,9 @@ func TestAES(t *testing.T) {
 	log.Printf(string(plaintext))
 	key := []byte("abcdef0123456789")
 	iv := []byte("0000111122223333")
-	
+
 	ciphertext, err := aesEncrypt(plaintext, key, iv)
-	
+
 	if err != nil {
 		t.Error(err)
 	}

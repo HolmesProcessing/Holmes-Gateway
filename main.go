@@ -65,12 +65,12 @@ func aesEncrypt(plaintext []byte, key []byte, iv []byte) ([]byte, error) {
 		return []byte(""), err
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
-	//ciphertext := make([]byte,len(plaintext)+mode.BlockSize-(len(plaintext)%mode.BlockSize))
+
 	padLength := mode.BlockSize()-len(plaintext)%mode.BlockSize()
 	ciphertext := make([]byte,len(plaintext))
 	copy(ciphertext, plaintext)
 	ciphertext = append(ciphertext, bytes.Repeat([]byte{byte(padLength)}, padLength)...)
-	
+
 	mode.CryptBlocks(ciphertext,ciphertext)
 	return ciphertext, nil
 }
@@ -124,13 +124,53 @@ func decryptTask(enc *EncryptedTask) (string, error) {
 	return string(decrypted), err
 }
 
+func stringPrintable(s string) (bool) {
+	for i := 0; i < len(s); i++{
+		c := int(s[i])
+		if c < 0x9 || (c > 0x0d && c < 0x20) || (c >0x7e){
+			return false
+		}
+	}
+	return true
+}
+
 func validateTask(task string) ([]Task, error) {
 	var tasks []Task
 	err := json.Unmarshal([]byte(task), &tasks)
 	if err != nil {
 		return nil, err
 	}
-	//TODO Check for required fields; Additional checks?
+	// Check for required fields; Check whether strings are in printable ascii-range
+	for i := 0; i < len(tasks); i++ {
+		t := tasks[i]
+		log.Printf("Validating %+v\n", t)
+		if t.PrimaryURI == "" || !stringPrintable(t.PrimaryURI) {
+			return nil, errors.New("Invalid Task (PrimaryURI invalid)")
+		}
+		if !stringPrintable(t.SecondaryURI) {
+			return nil, errors.New("Invalid Task (SecondaryURI invalid)")
+		}
+		if t.Filename == "" || !stringPrintable(t.Filename) {
+			return nil, errors.New("Invalid Task (Filename invalid)")
+		}
+		if len(t.Tasks) == 0 {
+			return nil, errors.New("Invalid Task")
+		}
+		for k := range t.Tasks {
+			if k == "" || !stringPrintable(k) {
+				return nil, errors.New("Invalid Task")
+			}
+		}
+		for j := 0; j < len(t.Tags); j++ {
+			if !stringPrintable(t.Tags[j]) {
+				return nil, errors.New("Invalid Task (Tag invalid)")
+			}
+		}
+		if t.Attempts < 0 {
+			return nil, errors.New("Invalid Task (Negative number of attempts)")
+		}
+	}
+
 	return tasks, err
 }
 
