@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"encoding/pem"
 	"encoding/json"
+	"encoding/base64"
 	"github.com/howeyc/fsnotify"
 )
 
@@ -32,6 +33,8 @@ func encryptKey(symKey []byte, asymKeyId string) ([]byte, error) {
 	keysMutex.Lock()
 	asymKey, exists := keys[asymKeyId]
 	keysMutex.Unlock()
+	log.Println("searching for key: " + asymKeyId)
+	log.Printf("%+v\n", keys)
 	if !exists {
 		return nil, errors.New("Public Key not found")
 	}
@@ -59,15 +62,46 @@ func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*Encr
 	return &encryptedTask, err
 }
 
+func requestTask(uri string, encryptedTask *EncryptedTask) (error) {
+	req, err := http.NewRequest("GET", uri, nil)
+	q := req.URL.Query()
+	q.Add("KeyFingerprint", encryptedTask.KeyFingerprint)
+	q.Add("EncryptedKey", base64.StdEncoding.EncodeToString(encryptedTask.EncryptedKey))
+	q.Add("IV", base64.StdEncoding.EncodeToString(encryptedTask.IV))
+	q.Add("Encrypted", base64.StdEncoding.EncodeToString(encryptedTask.Encrypted))
+	req.URL.RawQuery = q.Encode()
+	log.Println(req.URL)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+
+	log.Println(resp)
+	return err
+}
+
 func handleTask(task string) (error) {
-	// TODO: Check known organizations and chose one
 	// TODO: Find out, which source the task belongs to
+	// TODO: Check known organizations and chose one
+	uri := "http://localhost:8080/task/"
 	// TODO: Retrieve the corresponding public key
+	asymKeyId := "blub"
+
 	// TODO: Choose AES-key and IV
-	// TODO: Encrypt the task
-	// TODO: Encrypt AES-key with public key
+	symKey := []byte("abcdef0123456789")
+	iv := []byte("0000111122223333")
+
+	// Encrypt the task and the AES-key
+	et, err := encryptTask(task, asymKeyId, symKey, iv)
+	if err != nil {
+		log.Println("Error while encrypting: ", err)
+		return err
+	}
 	// TODO: Issue HTTP-GET-Request
-	return nil
+	err = requestTask(uri, et)
+	if err != nil {
+		log.Println("Error requesting task: ", err)
+		return err
+	}
+	return err
 }
 
 func loadPublicKey(path string)(*rsa.PublicKey, string){
@@ -83,8 +117,7 @@ func loadPublicKey(path string)(*rsa.PublicKey, string){
 
 	// strip the path from its directory and ".pub"-extension
 	path = filepath.Base(path)
-	path = path[:len(path)-5]
-	log.Printf("%+v\n", key)
+	path = path[:len(path)-4]
 	return key.(*rsa.PublicKey), path
 }
 
