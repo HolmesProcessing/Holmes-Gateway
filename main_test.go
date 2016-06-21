@@ -16,7 +16,7 @@ func TestRSA(t *testing.T) {
 		t.Error(err)
 	}
 	print(base64.StdEncoding.EncodeToString(c)+"\n")
-	p2, err := RsaDecrypt(c, &rsakey)
+	p2, err := RsaDecrypt(c, rsakey)
 	if err != nil {
 		t.Error(err)
 	} else if (p1 != string(p2)) {
