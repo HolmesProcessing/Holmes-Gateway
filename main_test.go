@@ -9,14 +9,14 @@ import (
 
 func TestRSA(t *testing.T) {
 	print("RSA-Test\n")
-	rsakey,_ := loadKey("keys/blub.priv")
+	rsakey,_ := loadPrivateKey("keys/blub.priv")
 	p1 := "abcdef0123456789"
-	c, err := rsaEncrypt([]byte(p1), &rsakey)
+	c, err := RsaEncrypt([]byte(p1), &rsakey.PublicKey)
 	if err != nil {
 		t.Error(err)
 	}
 	print(base64.StdEncoding.EncodeToString(c)+"\n")
-	p2, err := rsaDecrypt(c, &rsakey)
+	p2, err := RsaDecrypt(c, &rsakey)
 	if err != nil {
 		t.Error(err)
 	} else if (p1 != string(p2)) {
@@ -52,7 +52,7 @@ func TestAESDecrypt(t *testing.T) {
 		t.Error(err)
 	}
 
-	v, err := aesDecrypt(ciphertext, []byte("abcdef0123456789"), []byte("0000111122223333"))
+	v, err := AesDecrypt(ciphertext, []byte("abcdef0123456789"), []byte("0000111122223333"))
 	if err != nil {
 		t.Error(err)
 	} else if (string(v) != ("test encryption!")) {
@@ -80,14 +80,14 @@ func TestAES(t *testing.T) {
 	key := []byte("abcdef0123456789")
 	iv := []byte("0000111122223333")
 
-	ciphertext, err := aesEncrypt(plaintext, key, iv)
+	ciphertext, err := AesEncrypt(plaintext, key, iv)
 
 	if err != nil {
 		t.Error(err)
 	}
 	print(base64.StdEncoding.EncodeToString(ciphertext)+"\n")
 
-	plaintext2, err := aesDecrypt(ciphertext, key, iv)
+	plaintext2, err := AesDecrypt(ciphertext, key, iv)
 	if err != nil {
 		t.Error(err)
 	} else if (string(plaintext2) != string(plaintext)) {
