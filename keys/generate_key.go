@@ -40,11 +40,12 @@ func main() {
 	fPriv, err := os.Create("./"+fname+".priv")
 
 	fPub, err := os.Create("./"+fname+".pub")
-	n, err := fPriv.Write(pemdataPriv)
-	n, err = fPub.Write(pemdataPub)
-	log.Println(string(n))
+	_, err = fPriv.Write(pemdataPriv)
+	_, err = fPub.Write(pemdataPub)
+	log.Printf("%+v\n", priv)
 	log.Println(priv)
 	log.Println(string(pemdataPriv))
+	log.Printf("%+v\n", priv.PublicKey)
 	log.Println(pub)
 	log.Println(string(pemdataPub))
 
