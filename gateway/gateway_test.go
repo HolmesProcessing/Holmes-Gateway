@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"log"
 	"encoding/json"
-	"github.com/Ma-Shell/Holmes-Gateway/utils"
+	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 	)
 
 func TestRSA(t *testing.T) {

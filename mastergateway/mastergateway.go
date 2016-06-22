@@ -14,7 +14,7 @@ import (
 	"encoding/json"
 	"encoding/base64"
 	"github.com/howeyc/fsnotify"
-	"github.com/Ma-Shell/Holmes-Gateway/utils"
+	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 )
 
 type config struct {

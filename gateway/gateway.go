@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"github.com/howeyc/fsnotify"
 	"github.com/streadway/amqp"
-	"github.com/Ma-Shell/Holmes-Gateway/utils"
+	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 )
 
 type config struct {
