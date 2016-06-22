@@ -1,10 +1,9 @@
-package main
+package mastergateway
 
 import (
 	"os"
 	"log"
 	"sync"
-	"flag"
 	"io/ioutil"
 	"errors"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/base64"
 	"github.com/howeyc/fsnotify"
+	"github.com/Ma-Shell/Holmes-Gateway/utils"
 )
 
 type config struct {
@@ -38,11 +38,11 @@ func encryptKey(symKey []byte, asymKeyId string) ([]byte, error) {
 	if !exists {
 		return nil, errors.New("Public Key not found")
 	}
-	encrypted, err := RsaEncrypt(symKey, asymKey)
+	encrypted, err := tasking.RsaEncrypt(symKey, asymKey)
 	return encrypted, err
 }
 
-func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*EncryptedTask, error) {
+func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*tasking.EncryptedTask, error) {
 
 	encKey, err := encryptKey(symKey, asymKeyId)
 	if err != nil {
@@ -50,11 +50,11 @@ func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*Encr
 	}
 
 	// Decrypt using the symmetric key
-	encrypted, err := AesEncrypt([]byte(task), symKey, iv)
+	encrypted, err := tasking.AesEncrypt([]byte(task), symKey, iv)
 	if err != nil {
 		return nil, err
 	}
-	encryptedTask := EncryptedTask {
+	encryptedTask := tasking.EncryptedTask {
 		KeyFingerprint : asymKeyId,
 		EncryptedKey : encKey,
 		Encrypted : encrypted,
@@ -62,7 +62,7 @@ func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*Encr
 	return &encryptedTask, err
 }
 
-func requestTask(uri string, encryptedTask *EncryptedTask) (error) {
+func requestTask(uri string, encryptedTask *tasking.EncryptedTask) (error) {
 	req, err := http.NewRequest("GET", uri, nil)
 	q := req.URL.Query()
 	q.Add("KeyFingerprint", encryptedTask.KeyFingerprint)
@@ -107,13 +107,13 @@ func handleTask(task string) (error) {
 func loadPublicKey(path string)(*rsa.PublicKey, string){
 	log.Println(path)
 	f, err := ioutil.ReadFile(path)
-	FailOnError(err, "Error reading key (Read)")
+	tasking.FailOnError(err, "Error reading key (Read)")
 	pub, rem := pem.Decode(f)
 	if len(rem) != 0  || pub == nil{
-		FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
+		tasking.FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
 	}
 	key, err := x509.ParsePKIXPublicKey(pub.Bytes)
-	FailOnError(err, "Error reading key (Parse)")
+	tasking.FailOnError(err, "Error reading key (Parse)")
 
 	// strip the path from its directory and ".pub"-extension
 	path = filepath.Base(path)
@@ -180,18 +180,18 @@ func dirWatcher(watcher *fsnotify.Watcher) {
 
 func readKeys() {
 	err := filepath.Walk(conf.KeyPath, keyWalkFn)
-	FailOnError(err, "Error loading keys ")
+	tasking.FailOnError(err, "Error loading keys ")
 
 	// Setup directory watcher
 	watcher, err := fsnotify.NewWatcher()
-	FailOnError(err, "Error setting up directory-watcher")
+	tasking.FailOnError(err, "Error setting up directory-watcher")
 
 	// Process events
 	go dirWatcher(watcher)
 
 	err = watcher.Watch(conf.KeyPath)
 
-	FailOnError(err, "Error setting up directory-watcher")
+	tasking.FailOnError(err, "Error setting up directory-watcher")
 }
 
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
@@ -208,21 +208,12 @@ func initHTTP() {
 	log.Fatal(http.ListenAndServe(conf.HTTP, nil))
 }
 
-func main() {
+func Start(confPath string) {
 	// Parse the configuration
-	var confPath string
-	flag.StringVar(&confPath, "config", "", "Path to the config file")
-	flag.Parse()
-
-	if confPath == "" {
-		confPath, _ = filepath.Abs(filepath.Dir(os.Args[0]))
-		confPath += "/config.json"
-	}
-
 	conf = &config{}
 	cfile, _ := os.Open(confPath)
 	err := json.NewDecoder(cfile).Decode(&conf)
-	FailOnError(err, "Couldn't read config file")
+	tasking.FailOnError(err, "Couldn't read config file")
 	
 	// Parse the public keys
 	keys = make(map[string]*rsa.PublicKey)
