@@ -3,6 +3,7 @@ package tasking
 import (
 	"log"
 	"bytes"
+	"time"
 	"errors"
 	"io/ioutil"
 	"crypto/aes"
@@ -14,6 +15,13 @@ import (
 	"encoding/pem"
 	"path/filepath"
 )
+
+type Ticket struct {
+	Expiration  time.Time
+	Signature   []byte
+	SignerKeyId string
+	//TODO
+}
 
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
 // encrypted with the asymmetric key in KeyFingerprint
@@ -31,6 +39,7 @@ type Task struct {
 	Tasks          map[string][]string `json:"tasks"`
 	Tags           []string            `json:"tags"`
 	Attempts       int                 `json:"attempts"`
+	TaskTicket     Ticket              `json:"ticket"`
 }
 
 func FailOnError(err error, msg string) {

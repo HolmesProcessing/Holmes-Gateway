@@ -105,7 +105,7 @@ func validateTask(task string) ([]tasking.Task, error) {
 }
 
 func checkACL(task tasking.Task) (error){
-	//TODO: How shall ACL-Check be executed?
+	//TODO: Validate Ticket
 	return nil
 }
 
@@ -158,6 +158,7 @@ func handleTask(task *tasking.EncryptedTask) (error){
 			continue
 		}
 		log.Printf("Marshalled: %s\n", msgBody)
+		//TODO: strip ticket from msgBody
 		err = rabbitChannel.Publish(
 			conf.Exchange,    // exchange
 			conf.RoutingKey,  // key
