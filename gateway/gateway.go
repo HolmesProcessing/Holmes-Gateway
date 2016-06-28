@@ -5,11 +5,8 @@ import (
 	"os"
 	"sync"
 	"errors"
-	"io/ioutil"
 	"net/http"
-	"crypto/x509"
 	"crypto/rsa"
-	"encoding/pem"
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
@@ -187,23 +184,6 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	// TODO: Send an answer (fail/success)
 }
 
-func loadPrivateKey(path string)(*rsa.PrivateKey, string){
-	log.Println(path)
-	f, err := ioutil.ReadFile(path)
-	tasking.FailOnError(err, "Error reading key (Read)")
-	priv, rem := pem.Decode(f)
-	if len(rem) != 0  || priv == nil{
-		tasking.FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
-	}
-	key, err := x509.ParsePKCS1PrivateKey(priv.Bytes)
-	tasking.FailOnError(err, "Error reading key (Parse)")
-
-	// strip the path from its directory and ".priv"-extension
-	path = filepath.Base(path)
-	path = path[:len(path)-5]
-	return (*rsa.PrivateKey)(key), path
-}
-
 func keyWalkFn(path string, fi os.FileInfo, err error) (error) {
 	if fi.IsDir(){
 		return nil
@@ -211,7 +191,7 @@ func keyWalkFn(path string, fi os.FileInfo, err error) (error) {
 	if !(filepath.Ext(path) == ".priv"){
 		return nil
 	}
-	key, name := loadPrivateKey(path)
+	key, name := tasking.LoadPrivateKey(path)
 	keysMutex.Lock()
 	keys[name] = key
 	keysMutex.Unlock()
@@ -228,7 +208,7 @@ func dirWatcher(watcher *fsnotify.Watcher) {
 			log.Println("event:", ev)
 			if ev.IsCreate(){
 				log.Println("New private key", ev.Name)
-				key, name := loadPrivateKey(ev.Name)
+				key, name := tasking.LoadPrivateKey(ev.Name)
 				keysMutex.Lock()
 				keys[name] = key
 				keysMutex.Unlock()
@@ -248,7 +228,7 @@ func dirWatcher(watcher *fsnotify.Watcher) {
 				delete(keys, name)
 				keysMutex.Unlock()
 
-				key, name := loadPrivateKey(ev.Name)
+				key, name := tasking.LoadPrivateKey(ev.Name)
 				keysMutex.Lock()
 				keys[name] = key
 				keysMutex.Unlock()

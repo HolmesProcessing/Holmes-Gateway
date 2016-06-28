@@ -4,13 +4,10 @@ import (
 	"os"
 	"log"
 	"sync"
-	"io/ioutil"
 	"errors"
 	"net/http"
 	"crypto/rsa"
-	"crypto/x509"
 	"path/filepath"
-	"encoding/pem"
 	"encoding/json"
 	"encoding/base64"
 	"github.com/howeyc/fsnotify"
@@ -104,23 +101,6 @@ func handleTask(task string) (error) {
 	return err
 }
 
-func loadPublicKey(path string)(*rsa.PublicKey, string){
-	log.Println(path)
-	f, err := ioutil.ReadFile(path)
-	tasking.FailOnError(err, "Error reading key (Read)")
-	pub, rem := pem.Decode(f)
-	if len(rem) != 0  || pub == nil{
-		tasking.FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
-	}
-	key, err := x509.ParsePKIXPublicKey(pub.Bytes)
-	tasking.FailOnError(err, "Error reading key (Parse)")
-
-	// strip the path from its directory and ".pub"-extension
-	path = filepath.Base(path)
-	path = path[:len(path)-4]
-	return key.(*rsa.PublicKey), path
-}
-
 func keyWalkFn(path string, fi os.FileInfo, err error) (error) {
 	if fi.IsDir(){
 		return nil
@@ -128,7 +108,7 @@ func keyWalkFn(path string, fi os.FileInfo, err error) (error) {
 	if !(filepath.Ext(path) == ".pub"){
 		return nil
 	}
-	key, name := loadPublicKey(path)
+	key, name := tasking.LoadPublicKey(path)
 	keysMutex.Lock()
 	keys[name] = key
 	keysMutex.Unlock()
@@ -145,7 +125,7 @@ func dirWatcher(watcher *fsnotify.Watcher) {
 			log.Println("event:", ev)
 			if ev.IsCreate(){
 				log.Println("New public key", ev.Name)
-				key, name := loadPublicKey(ev.Name)
+				key, name := tasking.LoadPublicKey(ev.Name)
 				keysMutex.Lock()
 				keys[name] = key
 				keysMutex.Unlock()
@@ -165,7 +145,7 @@ func dirWatcher(watcher *fsnotify.Watcher) {
 				delete(keys, name)
 				keysMutex.Unlock()
 
-				key, name := loadPublicKey(ev.Name)
+				key, name := tasking.LoadPublicKey(ev.Name)
 				keysMutex.Lock()
 				keys[name] = key
 				keysMutex.Unlock()

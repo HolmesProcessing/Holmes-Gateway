@@ -4,11 +4,15 @@ import (
 	"log"
 	"bytes"
 	"errors"
+	"io/ioutil"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"path/filepath"
 )
 
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
@@ -80,4 +84,38 @@ func RsaDecrypt(ciphertext []byte, key *rsa.PrivateKey) ([]byte, error) {
 	label := []byte("")
 	plaintext, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, ciphertext, label)
 	return plaintext, err
+}
+
+func LoadPrivateKey(path string)(*rsa.PrivateKey, string){
+	log.Println(path)
+	f, err := ioutil.ReadFile(path)
+	FailOnError(err, "Error reading key (Read)")
+	priv, rem := pem.Decode(f)
+	if len(rem) != 0  || priv == nil{
+		FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(priv.Bytes)
+	FailOnError(err, "Error reading key (Parse)")
+
+	// strip the path from its directory and ".priv"-extension
+	path = filepath.Base(path)
+	path = path[:len(path)-5]
+	return (*rsa.PrivateKey)(key), path
+}
+
+func LoadPublicKey(path string)(*rsa.PublicKey, string){
+	log.Println(path)
+	f, err := ioutil.ReadFile(path)
+	FailOnError(err, "Error reading key (Read)")
+	pub, rem := pem.Decode(f)
+	if len(rem) != 0  || pub == nil{
+		FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
+	}
+	key, err := x509.ParsePKIXPublicKey(pub.Bytes)
+	FailOnError(err, "Error reading key (Parse)")
+
+	// strip the path from its directory and ".pub"-extension
+	path = filepath.Base(path)
+	path = path[:len(path)-4]
+	return key.(*rsa.PublicKey), path
 }
