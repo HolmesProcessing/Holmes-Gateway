@@ -25,3 +25,6 @@ _testmain.go
 
 keys/*.pub
 keys/*.priv
+# Executables
+Holmes-Gateway
+keys/keys

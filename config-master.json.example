@@ -1,4 +1,5 @@
 {
-	"HTTP":           ":8090",
-	"KeyPath":        "keys"
+	"HTTP":              ":8090",
+	"SourcesKeysPath":   "keys",
+	"TicketSignKeyPath": "keys/sign.priv"
 }

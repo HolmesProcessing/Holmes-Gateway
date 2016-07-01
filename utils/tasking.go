@@ -6,6 +6,7 @@ import (
 	"time"
 	"errors"
 	"io/ioutil"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rsa"
@@ -13,19 +14,20 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"encoding/json"
 	"path/filepath"
 )
 
 type Ticket struct {
 	Expiration  time.Time
-	Signature   []byte
+	Tasks       []Task
 	SignerKeyId string
-	//TODO
+	Signature   []byte
 }
 
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
 // encrypted with the asymmetric key in KeyFingerprint
-type EncryptedTask struct {
+type Encrypted struct {
 	KeyFingerprint  string
 	EncryptedKey    []byte
 	Encrypted       []byte
@@ -39,7 +41,6 @@ type Task struct {
 	Tasks          map[string][]string `json:"tasks"`
 	Tags           []string            `json:"tags"`
 	Attempts       int                 `json:"attempts"`
-	TaskTicket     Ticket              `json:"ticket"`
 }
 
 func FailOnError(err error, msg string) {
@@ -64,7 +65,28 @@ func AesEncrypt(plaintext []byte, key []byte, iv []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func AesDecrypt(ciphertext []byte, key []byte, iv []byte) ( []byte, error) {
+func Sign(message []byte, key *rsa.PrivateKey) ([]byte, error) {
+	hashed := sha256.Sum256(message)
+	return rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hashed[:])
+}
+
+func Verify(signature []byte, message []byte, key *rsa.PublicKey) (error) {
+	hashed := sha256.Sum256(message)
+	return rsa.VerifyPKCS1v15(key, crypto.SHA256, hashed[:], signature)
+}
+
+func VerifyTicket(ticket Ticket, key *rsa.PublicKey) (error) {
+	sign := ticket.Signature
+	ticket.Signature = nil
+	log.Println("Verifying signature ", sign)
+	msg, err := json.Marshal(ticket)
+	if err != nil {
+		return err
+	}
+	return Verify(sign, msg, key)
+}
+
+func AesDecrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return []byte(""), err

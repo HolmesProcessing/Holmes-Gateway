@@ -2,28 +2,48 @@ package mastergateway
 
 import (
 	"os"
+	"io"
 	"log"
 	"sync"
+	"time"
 	"errors"
 	"net/http"
 	"crypto/rsa"
+	"crypto/rand"
 	"path/filepath"
 	"encoding/json"
 	"encoding/base64"
 	"github.com/howeyc/fsnotify"
-	"github.com/HolmesProcessing/Holmes-Gateway/utils"
+	"../utils"
 )
 
 type config struct {
-	HTTP           string
-	KeyPath        string
+	HTTP                string // The HTTP-binding for listening (IP+Port)
+	SourcesKeysPath     string // Path to the public keys of the sources
+	TicketSignKeyPath   string // Path to the private key used for signing tickets
 }
 
 var (
-	conf *config
-	keys map[string]*rsa.PublicKey
-	keysMutex = &sync.Mutex{}
+	conf *config                   // The configuration struct
+	keys map[string]*rsa.PublicKey // The public keys of the sources
+	keysMutex = &sync.Mutex{}      // Mutex for the map, since keys could change during runtime
+	ticketSignKey *rsa.PrivateKey  // The private key used for signing tickets
+	ticketSignKeyName string       // The id of the private key used for signing tickets
 )
+
+func createTicket(tasks []tasking.Task) (tasking.Ticket, error){
+	t := tasking.Ticket {
+		Expiration : time.Now().Add(3*time.Hour), //TODO: 3 Hours validity reasonable?
+		Tasks : tasks,
+		SignerKeyId : ticketSignKeyName,
+		Signature : nil }
+	msg, err := json.Marshal(t)
+	if err != nil {
+		return t, err
+	}
+	t.Signature, err = tasking.Sign(msg, ticketSignKey)
+	return t, err
+}
 
 func encryptKey(symKey []byte, asymKeyId string) ([]byte, error) {
 	// Fetch public key
@@ -39,7 +59,7 @@ func encryptKey(symKey []byte, asymKeyId string) ([]byte, error) {
 	return encrypted, err
 }
 
-func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*tasking.EncryptedTask, error) {
+func encryptTicket(ticket []byte, asymKeyId string, symKey []byte, iv []byte) (*tasking.Encrypted, error) {
 
 	encKey, err := encryptKey(symKey, asymKeyId)
 	if err != nil {
@@ -47,25 +67,25 @@ func encryptTask(task string, asymKeyId string, symKey []byte, iv []byte) (*task
 	}
 
 	// Decrypt using the symmetric key
-	encrypted, err := tasking.AesEncrypt([]byte(task), symKey, iv)
+	encrypted, err := tasking.AesEncrypt(ticket, symKey, iv)
 	if err != nil {
 		return nil, err
 	}
-	encryptedTask := tasking.EncryptedTask {
+	encryptedTicket := tasking.Encrypted {
 		KeyFingerprint : asymKeyId,
 		EncryptedKey : encKey,
 		Encrypted : encrypted,
 		IV : iv	}
-	return &encryptedTask, err
+	return &encryptedTicket, err
 }
 
-func requestTask(uri string, encryptedTask *tasking.EncryptedTask) (error) {
+func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error) {
 	req, err := http.NewRequest("GET", uri, nil)
 	q := req.URL.Query()
-	q.Add("KeyFingerprint", encryptedTask.KeyFingerprint)
-	q.Add("EncryptedKey", base64.StdEncoding.EncodeToString(encryptedTask.EncryptedKey))
-	q.Add("IV", base64.StdEncoding.EncodeToString(encryptedTask.IV))
-	q.Add("Encrypted", base64.StdEncoding.EncodeToString(encryptedTask.Encrypted))
+	q.Add("KeyFingerprint", encryptedTicket.KeyFingerprint)
+	q.Add("EncryptedKey", base64.StdEncoding.EncodeToString(encryptedTicket.EncryptedKey))
+	q.Add("IV", base64.StdEncoding.EncodeToString(encryptedTicket.IV))
+	q.Add("Encrypted", base64.StdEncoding.EncodeToString(encryptedTicket.Encrypted))
 	req.URL.RawQuery = q.Encode()
 	log.Println(req.URL)
 	client := &http.Client{}
@@ -75,24 +95,51 @@ func requestTask(uri string, encryptedTask *tasking.EncryptedTask) (error) {
 	return err
 }
 
-func handleTask(task string) (error) {
+func handleTask(tasksStr string) (error) {
+	// TODO: Check ACL!
 	// TODO: Find out, which source the task belongs to
 	// TODO: Check known organizations and chose one
 	uri := "http://localhost:8080/task/"
 	// TODO: Retrieve the corresponding public key
 	asymKeyId := "blub"
 
-	// TODO: Choose AES-key and IV
-	symKey := []byte("abcdef0123456789")
-	iv := []byte("0000111122223333")
+	// Choose AES-key and IV
+	symKey := make([]byte, 16) //TODO: Length 16 OK?
+	if _, err := io.ReadFull(rand.Reader, symKey); err != nil {
+		log.Println("Error while creating AES-key: ", err)
+		return err
+	}
+	iv := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		log.Println("Error while creating IV: ", err)
+		return err
+	}
 
-	// Encrypt the task and the AES-key
-	et, err := encryptTask(task, asymKeyId, symKey, iv)
+	var tasks []tasking.Task
+	err := json.Unmarshal([]byte(tasksStr), &tasks)
+	if err != nil {
+		log.Println("Error while Unmarshalling tasks: ", err)
+		return err
+	}
+	ticket, err := createTicket(tasks)
+	if err != nil {
+		log.Println("Error while creating Ticket: ", err)
+		return err
+	}
+
+	ticketM, err := json.Marshal(ticket)
+	if err != nil {
+		log.Println("Error while Marshalling ticket: ", err)
+		return err
+	}
+
+	// Encrypt the ticket and the AES-key
+	et, err := encryptTicket(ticketM, asymKeyId, symKey, iv)
 	if err != nil {
 		log.Println("Error while encrypting: ", err)
 		return err
 	}
-	// TODO: Issue HTTP-GET-Request
+	// Issue HTTP-GET-Request
 	err = requestTask(uri, et)
 	if err != nil {
 		log.Println("Error requesting task: ", err)
@@ -159,7 +206,7 @@ func dirWatcher(watcher *fsnotify.Watcher) {
 }
 
 func readKeys() {
-	err := filepath.Walk(conf.KeyPath, keyWalkFn)
+	err := filepath.Walk(conf.SourcesKeysPath, keyWalkFn)
 	tasking.FailOnError(err, "Error loading keys ")
 
 	// Setup directory watcher
@@ -169,9 +216,11 @@ func readKeys() {
 	// Process events
 	go dirWatcher(watcher)
 
-	err = watcher.Watch(conf.KeyPath)
+	err = watcher.Watch(conf.SourcesKeysPath)
 
 	tasking.FailOnError(err, "Error setting up directory-watcher")
+
+	ticketSignKey, ticketSignKeyName = tasking.LoadPrivateKey(conf.TicketSignKeyPath)
 }
 
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
