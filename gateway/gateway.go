@@ -9,8 +9,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"path/filepath"
-	"github.com/howeyc/fsnotify"
 	"github.com/streadway/amqp"
 	"../utils"
 )
@@ -195,141 +193,39 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	// TODO: Send an answer (fail/success)
 }
 
-func keyWalkFnPriv(path string, fi os.FileInfo, err error) (error) {
-	if fi.IsDir(){
-		return nil
-	}
-	if !(filepath.Ext(path) == ".priv"){
-		return nil
-	}
-	key, name := tasking.LoadPrivateKey(path)
-	keysMutex.Lock()
-	keys[name] = key
-	keysMutex.Unlock()
-	return nil
-}
-
-func keyWalkFnPub(path string, fi os.FileInfo, err error) (error) {
-	if fi.IsDir(){
-		return nil
-	}
-	if !(filepath.Ext(path) == ".pub"){
-		return nil
-	}
-	key, name := tasking.LoadPublicKey(path)
-	keysMutex.Lock()
-	ticketKeys[name] = key
-	keysMutex.Unlock()
-	return nil
-}
-
-func dirWatcherPriv(watcher *fsnotify.Watcher) {
-	for {
-		select {
-		case ev := <-watcher.Event:		
-			if filepath.Ext(ev.Name) != ".priv" {
-				continue
-			}
-			log.Println("event:", ev)
-			if ev.IsCreate(){
-				log.Println("New private key", ev.Name)
-				key, name := tasking.LoadPrivateKey(ev.Name)
-				keysMutex.Lock()
-				keys[name] = key
-				keysMutex.Unlock()
-			} else if ev.IsDelete() || ev.IsRename(){
-				// For renamed keys, there is a CREATE-event afterwards so it is just removed here
-				log.Println("Removed private key", ev.Name)
-				name := filepath.Base(ev.Name)
-				name = name[:len(name)-5]
-				keysMutex.Lock()
-				delete(keys, name)
-				keysMutex.Unlock()
-			} else if ev.IsModify(){
-				log.Println("Modified private key", ev.Name)
-				name := filepath.Base(ev.Name)
-				name = name[:len(name)-5]
-				keysMutex.Lock()
-				delete(keys, name)
-				keysMutex.Unlock()
-
-				key, name := tasking.LoadPrivateKey(ev.Name)
-				keysMutex.Lock()
-				keys[name] = key
-				keysMutex.Unlock()
-			}
-			//log.Println(keys)
-
-		case err := <-watcher.Error:
-			log.Println("error:", err)
-		}
-	}
-}
-
-func dirWatcherPub(watcher *fsnotify.Watcher) {
-	for {
-		select {
-		case ev := <-watcher.Event:		
-			if filepath.Ext(ev.Name) != ".pub" {
-				continue
-			}
-			log.Println("event:", ev)
-			if ev.IsCreate(){
-				log.Println("New public key", ev.Name)
-				key, name := tasking.LoadPublicKey(ev.Name)
-				keysMutex.Lock()
-				ticketKeys[name] = key
-				keysMutex.Unlock()
-			} else if ev.IsDelete() || ev.IsRename(){
-				// For renamed ticketKeys, there is a CREATE-event afterwards so it is just removed here
-				log.Println("Removed public key", ev.Name)
-				name := filepath.Base(ev.Name)
-				name = name[:len(name)-5]
-				keysMutex.Lock()
-				delete(ticketKeys, name)
-				keysMutex.Unlock()
-			} else if ev.IsModify(){
-				log.Println("Modified public key", ev.Name)
-				name := filepath.Base(ev.Name)
-				name = name[:len(name)-5]
-				keysMutex.Lock()
-				delete(ticketKeys, name)
-				keysMutex.Unlock()
-
-				key, name := tasking.LoadPublicKey(ev.Name)
-				keysMutex.Lock()
-				ticketKeys[name] = key
-				keysMutex.Unlock()
-			}
-			//log.Println(ticketKeys)
-
-		case err := <-watcher.Error:
-			log.Println("error:", err)
-		}
-	}
-}
-
 func readKeys() {
-	err := filepath.Walk(conf.SourcesKeysPath, keyWalkFnPriv)
-	tasking.FailOnError(err, "Error loading keys ")
+	// Load the private keys for the sources
+	tasking.LoadKeysAndWatch(conf.SourcesKeysPath, ".priv",
+		func(name string){
+			keysMutex.Lock()
+			delete(keys, name)
+			keysMutex.Unlock()
+			log.Println(keys)
+		},
+		func(name string){
+			key, name := tasking.LoadPrivateKey(name)
+			keysMutex.Lock()
+			keys[name] = key
+			keysMutex.Unlock()
+			log.Println(keys)
+		})
 
-	err = filepath.Walk(conf.TicketKeysPath, keyWalkFnPub)
-	tasking.FailOnError(err, "Error loading keys ")
-
-	// Setup directory watcher
-	watcher, err := fsnotify.NewWatcher()
-	tasking.FailOnError(err, "Error setting up directory-watcher")
-	watcher2, err := fsnotify.NewWatcher()
-	tasking.FailOnError(err, "Error setting up directory-watcher")
-
-	// Process events
-	go dirWatcherPriv(watcher)
-	err = watcher.Watch(conf.SourcesKeysPath)
-	tasking.FailOnError(err, "Error setting up directory-watcher")
-
-	go dirWatcherPub(watcher2)
-	err = watcher.Watch(conf.TicketKeysPath)
-	tasking.FailOnError(err, "Error setting up directory-watcher")
+	// Load the public keys for the tickets
+	tasking.LoadKeysAndWatch(conf.TicketKeysPath, ".pub",
+		func(name string){
+			keysMutex.Lock()
+			delete(ticketKeys, name)
+			keysMutex.Unlock()
+			log.Println(ticketKeys)
+		},
+		func(name string){
+			key, name := tasking.LoadPublicKey(name)
+			keysMutex.Lock()
+			ticketKeys[name] = key
+			keysMutex.Unlock()
+			log.Println(ticketKeys)
+	})
+	
 }
 
 func connectRabbit() {

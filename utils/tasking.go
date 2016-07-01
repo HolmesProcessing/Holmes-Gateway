@@ -1,6 +1,7 @@
 package tasking
 
 import (
+	"os"
 	"log"
 	"bytes"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"encoding/pem"
 	"encoding/json"
 	"path/filepath"
+	"github.com/howeyc/fsnotify"
 )
 
 type Ticket struct {
@@ -149,4 +151,66 @@ func LoadPublicKey(path string)(*rsa.PublicKey, string){
 	path = filepath.Base(path)
 	path = path[:len(path)-4]
 	return key.(*rsa.PublicKey), path
+}
+
+func dirWatcherFunc(watcher *fsnotify.Watcher, ext string, onRemove func(string), onAdd func(string)) {
+	for {
+		select {
+		case ev := <-watcher.Event:		
+			if filepath.Ext(ev.Name) != ext {
+				continue
+			}
+			log.Println("event:", ev)
+			if ev.IsCreate(){
+				log.Println("New public key", ev.Name)
+				onAdd(ev.Name)
+			} else if ev.IsDelete() || ev.IsRename(){
+				// For renamed keys, there is a CREATE-event afterwards so it is just removed here
+				log.Println("Removed public key", ev.Name)
+				name := filepath.Base(ev.Name)
+				name = name[:len(name)-len(ext)]
+				onRemove(name)
+			} else if ev.IsModify(){
+				log.Println("Modified public key", ev.Name)
+				onRemove(ev.Name)
+				onAdd(ev.Name)
+			}
+			//log.Println(keys)
+
+		case err := <-watcher.Error:
+			log.Println("error:", err)
+		}
+	}
+}
+
+func DirWatcher(dir string, ext string, onRemove func(string), onAdd func(string)) {
+	// Setup directory watcher
+	watcher, err := fsnotify.NewWatcher()
+	FailOnError(err, "Error setting up directory-watcher")
+
+	// Process events
+	go dirWatcherFunc(watcher, ext, onRemove, onAdd)
+	err = watcher.Watch(dir)
+	FailOnError(err, "Error setting up directory-watcher")
+}
+
+func keyWalkFn(ext string, onAdd func(string), path string, fi os.FileInfo, err error) (error) {
+	if fi.IsDir(){
+		return nil
+	}
+	if !(filepath.Ext(path) == ext){
+		return nil
+	}
+	onAdd(path)
+	return nil
+}
+
+func LoadKeysAndWatch(dir string, ext string, onRemove func(string), onAdd func(string)) {
+	err := filepath.Walk(dir,
+		func(path string, fi os.FileInfo, err error) (error) {
+			return keyWalkFn(ext, onAdd, path, fi, err)
+		})
+	FailOnError(err, "Error loading keys ")
+
+	DirWatcher(dir, ext, onRemove, onAdd)
 }
