@@ -22,11 +22,13 @@ type config struct {
 }
 
 var (
-	conf *config                   // The configuration struct
-	keys map[string]*rsa.PublicKey // The public keys of the sources
-	keysMutex = &sync.Mutex{}      // Mutex for the map, since keys could change during runtime
-	ticketSignKey *rsa.PrivateKey  // The private key used for signing tickets
-	ticketSignKeyName string       // The id of the private key used for signing tickets
+	conf *config                               // The configuration struct
+	keys map[string]*rsa.PublicKey             // The public keys of the sources
+	keysMutex = &sync.Mutex{}                  // Mutex for the map, since keys could change during runtime
+	ticketSignKey *rsa.PrivateKey              // The private key used for signing tickets
+	ticketSignKeyName string                   // The id of the private key used for signing tickets
+	organizations []tasking.Organization       // All the known organizations
+	srcRouter map[string]*tasking.Organization // Which source should be routed to which organization
 )
 
 func createTicket(tasks []tasking.Task) (tasking.Ticket, error){
@@ -94,12 +96,49 @@ func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error) {
 }
 
 func handleTask(tasksStr string) (error) {
-	// TODO: Check ACL!
-	// TODO: Find out, which source the task belongs to
-	// TODO: Check known organizations and chose one
-	uri := "http://localhost:8080/task/"
-	// TODO: Retrieve the corresponding public key
-	asymKeyId := "blub"
+	// TODO: Authenticate Request and check ACL!
+	var tasks []tasking.Task
+	err := json.Unmarshal([]byte(tasksStr), &tasks)
+	if err != nil {
+		log.Println("Error while Unmarshalling tasks: ", err)
+		return err
+	}
+
+	// Sort the tasks for their destination organizations, based on the
+	// source of the task and the srcRouter-configuration
+	tasklists := make(map[*tasking.Organization][]tasking.Task)
+	for _,task := range tasks {
+		org, found := srcRouter[task.Source]
+		if !found {
+			//TODO
+			log.Printf("No route for source %s!\n", task.Source)
+			continue
+		}
+		tasklist, found := tasklists[org]
+		// TODO: Is this efficient?
+		if !found {
+			tasklists[org] = []tasking.Task{task}
+		} else {
+			tasklists[org] = append(tasklist, task)
+		}
+	}
+
+	for org, tasklist := range tasklists {
+		sendTaskList(tasklist, org)
+	}
+	// TODO: collect errors and return them
+	return nil
+}
+
+func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error){
+	uri := org.Uri
+
+	// Retrieve the corresponding public key
+	// Note: Since this is all destined for the same organization and
+	// the organization is supposed to have access to all the sources
+	// for tasks in this tasklist, we just use the source of the first
+	// one for the encryption-key
+	asymKeyId := tasks[0].Source
 
 	// Choose AES-key and IV
 	symKey := make([]byte, 16) //TODO: Length 16 OK?
@@ -113,12 +152,6 @@ func handleTask(tasksStr string) (error) {
 		return err
 	}
 
-	var tasks []tasking.Task
-	err := json.Unmarshal([]byte(tasksStr), &tasks)
-	if err != nil {
-		log.Println("Error while Unmarshalling tasks: ", err)
-		return err
-	}
 	ticket, err := createTicket(tasks)
 	if err != nil {
 		log.Println("Error while creating Ticket: ", err)
@@ -179,12 +212,31 @@ func initHTTP() {
 	log.Fatal(http.ListenAndServe(conf.HTTP, nil))
 }
 
+func initSourceRouting() {
+	//TODO: make this dynamically configurable
+	org1 := tasking.Organization {
+	Name: "org1",
+	Uri: "http://localhost:8080/task/",
+	Sources:    []string{"blub", "foo"}}
+	org2 := tasking.Organization {
+	Name: "org2",
+	Uri: "http://localhost:8081/task/",
+	Sources:    []string{"bar"}}
+	organizations = []tasking.Organization{org1, org2}
+	srcRouter = make(map[string]*tasking.Organization)
+	srcRouter["blub"] = &org1
+	srcRouter["foo"] = &org1
+	srcRouter["bar"] = &org2
+}
+
 func Start(confPath string) {
 	// Parse the configuration
 	conf = &config{}
 	cfile, _ := os.Open(confPath)
 	err := json.NewDecoder(cfile).Decode(&conf)
 	tasking.FailOnError(err, "Couldn't read config file")
+
+	initSourceRouting()
 	
 	// Parse the public keys
 	keys = make(map[string]*rsa.PublicKey)

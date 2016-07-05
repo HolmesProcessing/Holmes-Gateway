@@ -1,33 +1,35 @@
 <html>
+	<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7/jquery.js"></script> 
+    <script src="http://malsup.github.com/jquery.form.js"></script>
 	<body>
-		<form name="subm" action = "http://localhost:8080/task/" method="GET">
-			<p>Key Fingerprint</p>
-			<input type="text" name="KeyFingerprint">
-			<p>Encrypted Key</p>
-			<input type="text" id="EncryptedKey_" oninput="encKey();">
-			<input type="text" name="EncryptedKey">
-			<p>Encrypted Task</p>
-			<input type="text" id="Encrypted_" oninput="enc();">
-			<input type="text" name="Encrypted">
-			<p>IV</p>
-			<input type="text" id="IV_" oninput="encIv();">
-			<input type="text" name="IV">
-			
-			<input type="submit">
+		<form id="myform" name="subm" action = "http://localhost:8090/task/" method="GET">
+			<input type="text" id="url" value="http://localhost:8090/task/" style="width:100%">
+			<p>Tasks</p>
+			<textarea id="taskarea" name="task" style="width:100%;height:50%"></textarea>
+			</br>
+			<input type="button" onclick="send()" value="Send">
+			<input type="button" onclick="append_example()" value="Append Example">
 		</form>
 		<script>
-		function enc()
-		{
-			document.subm.Encrypted.value = btoa(document.subm.Encrypted_.value);	
+		function send(){
+		var datastring = 'task=[' + $(taskarea).val()+"]";
+		
+		$.ajax({
+			type: "GET",
+			url:  $(url).val(),
+			data: datastring
+
+		});
 		}
-		function encKey()
-		{
-			document.subm.EncryptedKey.value = btoa(document.subm.EncryptedKey_.value);
+		function append_example(){
+			$(taskarea).val($(taskarea).val()+'{"primaryURI":"http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":5,"source":"foo"}\n');
 		}
-		function encIv()
-		{
-			document.subm.IV.value = btoa(document.subm.IV_.value);
-		}
+		/*
+		[{"primaryURI":"http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":5,"source":"foo"},
+{"primaryURI":"http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":5,"source":"bar"}]
+		*/
+		
+
 		</script>
 	</body>
 </html>

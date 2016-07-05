@@ -43,6 +43,13 @@ type Task struct {
 	Tasks          map[string][]string `json:"tasks"`
 	Tags           []string            `json:"tags"`
 	Attempts       int                 `json:"attempts"`
+	Source         string              `json:"source"`
+}
+
+type Organization struct {
+	Name       string
+	Uri        string
+	Sources    []string
 }
 
 func FailOnError(err error, msg string) {
