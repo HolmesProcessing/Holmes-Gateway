@@ -19,6 +19,7 @@ type config struct {
 	HTTP                string // The HTTP-binding for listening (IP+Port)
 	SourcesKeysPath     string // Path to the public keys of the sources
 	TicketSignKeyPath   string // Path to the private key used for signing tickets
+	Organizations []tasking.Organization // All the known organizations
 }
 
 var (
@@ -27,7 +28,6 @@ var (
 	keysMutex = &sync.Mutex{}                  // Mutex for the map, since keys could change during runtime
 	ticketSignKey *rsa.PrivateKey              // The private key used for signing tickets
 	ticketSignKeyName string                   // The id of the private key used for signing tickets
-	organizations []tasking.Organization       // All the known organizations
 	srcRouter map[string]*tasking.Organization // Which source should be routed to which organization
 )
 
@@ -214,19 +214,16 @@ func initHTTP() {
 
 func initSourceRouting() {
 	//TODO: make this dynamically configurable
-	org1 := tasking.Organization {
-	Name: "org1",
-	Uri: "http://localhost:8080/task/",
-	Sources:    []string{"blub", "foo"}}
-	org2 := tasking.Organization {
-	Name: "org2",
-	Uri: "http://localhost:8081/task/",
-	Sources:    []string{"bar"}}
-	organizations = []tasking.Organization{org1, org2}
 	srcRouter = make(map[string]*tasking.Organization)
-	srcRouter["blub"] = &org1
-	srcRouter["foo"] = &org1
-	srcRouter["bar"] = &org2
+	log.Println("=====")
+	for num, org := range(conf.Organizations) {
+		log.Println(org)
+		for _, src := range(org.Sources) {
+			srcRouter[src] = &conf.Organizations[num]
+		}
+	}
+	log.Println("=====")
+	log.Println(srcRouter)	
 }
 
 func Start(confPath string) {

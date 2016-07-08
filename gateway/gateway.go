@@ -153,7 +153,7 @@ func pushToTransport(task tasking.Task) {
 		log.Println("Error while Marshalling: ", err)
 		return
 	}
-	log.Printf("Marshalled: %s\n", msgBody)
+	log.Printf("Pushing: \x1b[0;32m%s\x1b[0m\n", msgBody)
 	err = rabbitChannel.Publish(
 		conf.Exchange,    // exchange
 		conf.RoutingKey,  // key

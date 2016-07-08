@@ -1,5 +1,7 @@
 {
 	"HTTP":              ":8090",
 	"SourcesKeysPath":   "keys",
-	"TicketSignKeyPath": "keys/sign.priv"
+	"TicketSignKeyPath": "keys/sign.priv",
+	"Organizations":     [{"Name": "Org1", "Uri": "http://localhost:8080/task/", "Sources": ["foo","bar"]},
+	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}]
 }
