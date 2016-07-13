@@ -52,6 +52,19 @@ type Organization struct {
 	Sources    []string
 }
 
+type MyError struct {
+	Error error
+}
+
+type TaskError struct {
+	TaskStruct* Task
+	Error       MyError
+}
+
+func (me MyError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(me.Error.Error())
+}
+
 func FailOnError(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)

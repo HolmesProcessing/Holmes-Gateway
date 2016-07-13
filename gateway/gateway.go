@@ -48,7 +48,7 @@ func decryptTicket(enc *tasking.Encrypted) (string, error) {
 	if err != nil{
 		return "", err
 	}
-	log.Printf("Symmetric Key: %s\n", symKey)
+	//log.Printf("Symmetric Key: %s\n", symKey)
 
 	// Decrypt using the symmetric key
 	decrypted, err := tasking.AesDecrypt(enc.Encrypted, symKey, enc.IV)
@@ -65,65 +65,77 @@ func stringPrintable(s string) (bool) {
 	return true
 }
 
-func handleDecrypted(ticketStr string) (error) {
+func checkTask(task *tasking.Task) (error){
+	log.Printf("Validating %+v\n", task)
+	if task.PrimaryURI == "" || !stringPrintable(task.PrimaryURI) {
+		return errors.New("Invalid Task (PrimaryURI invalid)")
+	}
+	if !stringPrintable(task.SecondaryURI) {
+		return errors.New("Invalid Task (SecondaryURI invalid)")
+	}
+	if task.Filename == "" || !stringPrintable(task.Filename) {
+		return errors.New("Invalid Task (Filename invalid)")
+	}
+	if len(task.Tasks) == 0 {
+		return errors.New("Invalid Task")
+	}
+	for k := range task.Tasks {
+		if k == "" || !stringPrintable(k) {
+			return errors.New("Invalid Task")
+		}
+	}
+	for j := 0; j < len(task.Tags); j++ {
+		if !stringPrintable(task.Tags[j]) {
+			return errors.New("Invalid Task (Tag invalid)")
+		}
+	}
+	if task.Attempts < 0 {
+		return errors.New("Invalid Task (Negative number of attempts)")
+	}
+	return nil
+}
+
+func handleDecrypted(ticketStr string) (error, []tasking.TaskError) {
+	tskerrors := make([]tasking.TaskError,0)
 	var ticket tasking.Ticket
 	err := json.Unmarshal([]byte(ticketStr), &ticket)
 	if err != nil {
-		return err
+		return err, tskerrors
 	}
 
 	// Check ticket for validity
 	signKey, found := ticketKeys[ticket.SignerKeyId]
 	if !found {
-		return errors.New("Couldn't verify signature: Key unknown")
+		return errors.New("Couldn't verify signature: Key unknown"), tskerrors
 	}
 	err = tasking.VerifyTicket(ticket, signKey)
 	if err != nil {
 		log.Println("Ticket invalid!")
-		return err
+		return err, tskerrors
 	}
 	log.Println("Signature OK!")
 	// Signature is OK
 
 	if time.Now().After(ticket.Expiration) {
-		return errors.New("Ticket expired")
+		return errors.New("Ticket expired"), tskerrors
 	}
 	//TODO: Check ACL
 
 	// Check for required fields; Check whether strings are in printable ascii-range
 	for i := 0; i < len(ticket.Tasks); i++ {
-		t := ticket.Tasks[i]
-		log.Printf("Validating %+v\n", t)
-		if t.PrimaryURI == "" || !stringPrintable(t.PrimaryURI) {
-			return errors.New("Invalid Task (PrimaryURI invalid)")
+		task := ticket.Tasks[i]
+		e := checkTask(&task)
+		if e != nil {
+			e2 := tasking.MyError{Error: e}
+			tskerrors = append(tskerrors, tasking.TaskError{
+				TaskStruct : &task,
+				Error : e2})
+		} else {
+			pushToTransport(task)
 		}
-		if !stringPrintable(t.SecondaryURI) {
-			return errors.New("Invalid Task (SecondaryURI invalid)")
-		}
-		if t.Filename == "" || !stringPrintable(t.Filename) {
-			return errors.New("Invalid Task (Filename invalid)")
-		}
-		if len(t.Tasks) == 0 {
-			return errors.New("Invalid Task")
-		}
-		for k := range t.Tasks {
-			if k == "" || !stringPrintable(k) {
-				return errors.New("Invalid Task")
-			}
-		}
-		for j := 0; j < len(t.Tags); j++ {
-			if !stringPrintable(t.Tags[j]) {
-				return errors.New("Invalid Task (Tag invalid)")
-			}
-		}
-		if t.Attempts < 0 {
-			return errors.New("Invalid Task (Negative number of attempts)")
-		}
-
-		pushToTransport(t)
 	}
 
-	return err
+	return err, tskerrors
 }
 
 func decodeTask(r *http.Request) (*tasking.Encrypted, error) {
@@ -169,31 +181,39 @@ func pushToTransport(task tasking.Task) {
 	}
 }
 
-func handleIncoming(task *tasking.Encrypted) (error){
+func handleIncoming(task *tasking.Encrypted) (error, []tasking.TaskError){
 	decTicket, err := decryptTicket(task)
 	if err != nil {
 		log.Println("Error while decrypting: ", err)
-		return err
+		return err, nil
 	}
 	log.Println("Decrypted ticket:", decTicket)
-	err = handleDecrypted(decTicket)
+	err, tskerrors := handleDecrypted(decTicket)
 	if err != nil {
 		log.Println("Error: ", err)
-		return err
+		return err, nil
 	}
-	// TODO: Actually collect all the errors for individual tasks and return them
-	return nil
+	// return all the collected errors for individual tasks
+	return nil, tskerrors
 }
 
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	task, err := decodeTask(r)
 	if err != nil {
 		log.Println("Error while decoding: ", err)
+		w.Write([]byte(err.Error()))
 		return
 	}
 
-	handleIncoming(task)
-	// TODO: Send an answer (fail/success)
+	err, tskerrors := handleIncoming(task)
+	//TODO: encrypt answer
+	if err != nil {
+		w.Write([]byte(err.Error()))
+	} else {
+		log.Printf("Collected errors: %+v", tskerrors)
+		x, _ := json.Marshal(tskerrors)
+		w.Write(x)
+	}
 }
 
 func readKeys() {

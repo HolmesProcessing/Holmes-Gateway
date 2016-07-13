@@ -5,21 +5,32 @@
 		<form id="myform" name="subm" action = "http://localhost:8090/task/" method="GET">
 			<input type="text" id="url" value="http://localhost:8090/task/" style="width:100%">
 			<p>Tasks</p>
-			<textarea id="taskarea" name="task" style="width:100%;height:50%"></textarea>
+			<textarea id="taskarea" name="task" style="width:100%;height:40%"></textarea>
+			<textarea id="results" style="width:100%;height:30%"></textarea>
 			</br>
 			<input type="button" onclick="send()" value="Send">
 			<input type="button" onclick="append_example()" value="Append Example">
 		</form>
 		<script>
 		function send(){
-		var datastring = 'task=[' + $(taskarea).val()+"]";
-		
-		$.ajax({
-			type: "GET",
-			url:  $(url).val(),
-			data: datastring
-
-		});
+			var i = 0;
+			task = ""
+			str = $(taskarea).val()
+			while(i < str.length)
+			{
+				var j = str.indexOf("\n",i);
+				if (j==-1) j= str.length;
+				task += str.substr(i, j-i) + ",\n";
+				i = j+1;
+			}
+			task = task.substr(0, task.length-2)
+			var datastring = 'task=[' + task + "]";
+			$.ajax({
+				type: "GET",
+				url:  $(url).val(),
+				data: datastring,
+				success: function(a,b,c) {$(results).val(a);}
+			});
 		}
 		function append_example(){
 			$(taskarea).val($(taskarea).val()+'{"primaryURI":"http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":5,"source":"foo"}\n');

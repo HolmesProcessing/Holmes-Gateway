@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"errors"
+	"io/ioutil"
 	"net/http"
 	"crypto/rsa"
 	"crypto/rand"
@@ -79,7 +80,7 @@ func encryptTicket(ticket []byte, asymKeyId string, symKey []byte, iv []byte) (*
 	return &encryptedTicket, err
 }
 
-func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error) {
+func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error, []byte) {
 	req, err := http.NewRequest("GET", uri, nil)
 	q := req.URL.Query()
 	q.Add("KeyFingerprint", encryptedTicket.KeyFingerprint)
@@ -90,18 +91,20 @@ func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error) {
 	log.Println(req.URL)
 	client := &http.Client{}
 	resp, err := client.Do(req)
-
-	log.Println(resp)
-	return err
+	tskerrors, _ := ioutil.ReadAll(resp.Body)
+	log.Printf("Received: %+v\n", string(tskerrors))
+	//TODO: Decrypt and handle answer
+	return err, tskerrors
 }
 
-func handleTask(tasksStr string) (error) {
+func handleTask(tasksStr string) (error, []tasking.TaskError) {
+	tskerrors := make([]tasking.TaskError, 0)
 	// TODO: Authenticate Request and check ACL!
 	var tasks []tasking.Task
 	err := json.Unmarshal([]byte(tasksStr), &tasks)
 	if err != nil {
-		log.Println("Error while Unmarshalling tasks: ", err)
-		return err
+		log.Println("Error while unmarshalling tasks: ", err)
+		return err, tskerrors
 	}
 
 	// Sort the tasks for their destination organizations, based on the
@@ -110,8 +113,10 @@ func handleTask(tasksStr string) (error) {
 	for _,task := range tasks {
 		org, found := srcRouter[task.Source]
 		if !found {
-			//TODO
 			log.Printf("No route for source %s!\n", task.Source)
+			tskerrors = append(tskerrors, tasking.TaskError{
+				TaskStruct : &task,
+				Error : tasking.MyError{Error: errors.New("No route for source!")}})
 			continue
 		}
 		tasklist, found := tasklists[org]
@@ -126,8 +131,8 @@ func handleTask(tasksStr string) (error) {
 	for org, tasklist := range tasklists {
 		sendTaskList(tasklist, org)
 	}
-	// TODO: collect errors and return them
-	return nil
+	// TODO: collect tskerrors and return them
+	return nil, tskerrors
 }
 
 func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error){
@@ -171,7 +176,7 @@ func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error){
 		return err
 	}
 	// Issue HTTP-GET-Request
-	err = requestTask(uri, et)
+	err, _ = requestTask(uri, et)
 	if err != nil {
 		log.Println("Error requesting task: ", err)
 		return err
@@ -208,9 +213,13 @@ func readKeys() {
 
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	task := r.FormValue("task")
-	err := handleTask(task)
+	err, tskerrors := handleTask(task)
 	if err != nil {
 		log.Println(err)
+		w.Write([]byte(err.Error()+"\n"))
+	} else if len(tskerrors) != 0 {
+		x, _ := json.Marshal(tskerrors)
+		w.Write(x)
 	}
 }
 
