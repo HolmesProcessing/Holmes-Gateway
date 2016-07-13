@@ -188,14 +188,22 @@ func readKeys() {
 			log.Println(keys)
 		},
 		func(name string){
-			key, name := tasking.LoadPublicKey(name)
+			key, name, err := tasking.LoadPublicKey(name)
+			if err != nil {
+				log.Printf("Error reading key (%s):%s\n", name, err)
+				return
+			}
+
 			keysMutex.Lock()
 			keys[name] = key
 			keysMutex.Unlock()
 			log.Println(keys)
 		})
-
-	ticketSignKey, ticketSignKeyName = tasking.LoadPrivateKey(conf.TicketSignKeyPath)
+	var err error
+	ticketSignKey, ticketSignKeyName, err = tasking.LoadPrivateKey(conf.TicketSignKeyPath)
+	if err != nil {
+		log.Fatal("Error while reading key for signing (%s):%s", ticketSignKeyName, err)
+	}
 }
 
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {

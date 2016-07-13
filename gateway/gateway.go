@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 	"errors"
 	"net/http"
 	"crypto/rsa"
@@ -84,7 +85,9 @@ func handleDecrypted(ticketStr string) (error) {
 	log.Println("Signature OK!")
 	// Signature is OK
 
-	//TODO: Check expired
+	if time.Now().After(ticket.Expiration) {
+		return errors.New("Ticket expired")
+	}
 	//TODO: Check ACL
 
 	// Check for required fields; Check whether strings are in printable ascii-range
@@ -203,7 +206,12 @@ func readKeys() {
 			log.Println(keys)
 		},
 		func(name string){
-			key, name := tasking.LoadPrivateKey(name)
+			key, name, err := tasking.LoadPrivateKey(name)
+			if err != nil {
+				log.Printf("Error reading key (%s):%s\n", name, err)
+				return
+			}
+
 			keysMutex.Lock()
 			keys[name] = key
 			keysMutex.Unlock()
@@ -219,7 +227,11 @@ func readKeys() {
 			log.Println(ticketKeys)
 		},
 		func(name string){
-			key, name := tasking.LoadPublicKey(name)
+			key, name, err := tasking.LoadPublicKey(name)
+			if err != nil {
+				log.Printf("Error reading key (%s):%s\n", name, err)
+				return
+			}
 			keysMutex.Lock()
 			ticketKeys[name] = key
 			keysMutex.Unlock()

@@ -126,38 +126,46 @@ func RsaDecrypt(ciphertext []byte, key *rsa.PrivateKey) ([]byte, error) {
 	return plaintext, err
 }
 
-func LoadPrivateKey(path string)(*rsa.PrivateKey, string){
+func LoadPrivateKey(path string)(*rsa.PrivateKey, string, error){
 	log.Println(path)
 	f, err := ioutil.ReadFile(path)
-	FailOnError(err, "Error reading key (Read)")
+	if err != nil {
+		return nil, "Read", err
+	}
 	priv, rem := pem.Decode(f)
 	if len(rem) != 0  || priv == nil{
-		FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
+		return nil, "Decode", errors.New("Key not in pem-format")
 	}
 	key, err := x509.ParsePKCS1PrivateKey(priv.Bytes)
-	FailOnError(err, "Error reading key (Parse)")
+	if err != nil {
+		return nil, "Parse", err
+	}
 
 	// strip the path from its directory and ".priv"-extension
 	path = filepath.Base(path)
 	path = path[:len(path)-5]
-	return (*rsa.PrivateKey)(key), path
+	return (*rsa.PrivateKey)(key), path, nil
 }
 
-func LoadPublicKey(path string)(*rsa.PublicKey, string){
+func LoadPublicKey(path string)(*rsa.PublicKey, string, error){
 	log.Println(path)
 	f, err := ioutil.ReadFile(path)
-	FailOnError(err, "Error reading key (Read)")
+	if err != nil {
+		return nil, "Read", err
+	}
 	pub, rem := pem.Decode(f)
 	if len(rem) != 0  || pub == nil{
-		FailOnError(errors.New("Key not in pem-format"), "Error reading key (Decode)")
+		return nil, "Decode", errors.New("Key not in pem-format")
 	}
 	key, err := x509.ParsePKIXPublicKey(pub.Bytes)
-	FailOnError(err, "Error reading key (Parse)")
+	if err != nil {
+		return nil, "Parse", err
+	}
 
 	// strip the path from its directory and ".pub"-extension
 	path = filepath.Base(path)
 	path = path[:len(path)-4]
-	return key.(*rsa.PublicKey), path
+	return key.(*rsa.PublicKey), path, nil
 }
 
 func dirWatcherFunc(watcher *fsnotify.Watcher, ext string, onRemove func(string), onAdd func(string)) {
@@ -169,16 +177,16 @@ func dirWatcherFunc(watcher *fsnotify.Watcher, ext string, onRemove func(string)
 			}
 			log.Println("event:", ev)
 			if ev.IsCreate(){
-				log.Println("New public key", ev.Name)
+				log.Println("New key", ev.Name)
 				onAdd(ev.Name)
 			} else if ev.IsDelete() || ev.IsRename(){
 				// For renamed keys, there is a CREATE-event afterwards so it is just removed here
-				log.Println("Removed public key", ev.Name)
+				log.Println("Removed key", ev.Name)
 				name := filepath.Base(ev.Name)
 				name = name[:len(name)-len(ext)]
 				onRemove(name)
 			} else if ev.IsModify(){
-				log.Println("Modified public key", ev.Name)
+				log.Println("Modified key", ev.Name)
 				onRemove(ev.Name)
 				onAdd(ev.Name)
 			}
