@@ -101,6 +101,7 @@ func handleTask(tasksStr string) (error, []tasking.TaskError) {
 	tskerrors := make([]tasking.TaskError, 0)
 	// TODO: Authenticate Request and check ACL!
 	var tasks []tasking.Task
+	log.Println("Task: ", tasksStr)
 	err := json.Unmarshal([]byte(tasksStr), &tasks)
 	if err != nil {
 		log.Println("Error while unmarshalling tasks: ", err)
@@ -129,13 +130,22 @@ func handleTask(tasksStr string) (error, []tasking.TaskError) {
 	}
 
 	for org, tasklist := range tasklists {
-		sendTaskList(tasklist, org)
+		err, tskOrgErrors := sendTaskList(tasklist, org)
+		if err != nil {
+			log.Println("Error while sending tasks: ", err)
+		}
+		var tskOrgErrorsP []tasking.TaskError
+		err = json.Unmarshal(tskOrgErrors, &tskOrgErrorsP)
+		if err != nil {
+			log.Printf("Error while parsing result")
+		}
+		tskerrors = append(tskerrors, tskOrgErrorsP...)
 	}
 	// TODO: collect tskerrors and return them
 	return nil, tskerrors
 }
 
-func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error){
+func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byte){
 	uri := org.Uri
 
 	// Retrieve the corresponding public key
@@ -149,39 +159,39 @@ func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error){
 	symKey := make([]byte, 16) //TODO: Length 16 OK?
 	if _, err := io.ReadFull(rand.Reader, symKey); err != nil {
 		log.Println("Error while creating AES-key: ", err)
-		return err
+		return err, nil
 	}
 	iv := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		log.Println("Error while creating IV: ", err)
-		return err
+		return err, nil
 	}
 
 	ticket, err := createTicket(tasks)
 	if err != nil {
 		log.Println("Error while creating Ticket: ", err)
-		return err
+		return err, nil
 	}
 
 	ticketM, err := json.Marshal(ticket)
 	if err != nil {
 		log.Println("Error while Marshalling ticket: ", err)
-		return err
+		return err, nil
 	}
 
 	// Encrypt the ticket and the AES-key
 	et, err := encryptTicket(ticketM, asymKeyId, symKey, iv)
 	if err != nil {
 		log.Println("Error while encrypting: ", err)
-		return err
+		return err, nil
 	}
 	// Issue HTTP-GET-Request
-	err, _ = requestTask(uri, et)
+	err, tskerrors := requestTask(uri, et)
 	if err != nil {
 		log.Println("Error requesting task: ", err)
-		return err
+		return err, tskerrors
 	}
-	return err
+	return err, tskerrors
 }
 
 func readKeys() {

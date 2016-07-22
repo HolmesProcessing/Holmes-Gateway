@@ -65,6 +65,13 @@ func (me MyError) MarshalJSON() ([]byte, error) {
 	return json.Marshal(me.Error.Error())
 }
 
+func (me *MyError) UnmarshalJSON(data []byte) error {
+	var s string
+	err := json.Unmarshal(data, &s)
+	me.Error = errors.New(s)
+	return err
+}
+
 func FailOnError(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)
