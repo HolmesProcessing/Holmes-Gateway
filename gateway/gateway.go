@@ -34,25 +34,25 @@ var keysMutex = &sync.Mutex{}
 var rabbitChannel *amqp.Channel
 var rabbitQueue amqp.Queue
 
-func decryptTicket(enc *tasking.Encrypted) (string, error) {
+func decryptTicket(enc *tasking.Encrypted) (string, error, []byte) {
 	// Fetch private key corresponding to enc.keyFingerprint
 	keysMutex.Lock()
 	asymKey, exists := keys[enc.KeyFingerprint]
 	keysMutex.Unlock()
 	if !exists {
-		return "", errors.New("Private key not found")
+		return "", errors.New("Private key not found"), nil
 	}
 	
 	// Decrypt symmetric key using the asymmetric key
 	symKey, err := tasking.RsaDecrypt(enc.EncryptedKey, asymKey)
 	if err != nil{
-		return "", err
+		return "", err, nil
 	}
 	//log.Printf("Symmetric Key: %s\n", symKey)
 
 	// Decrypt using the symmetric key
 	decrypted, err := tasking.AesDecrypt(enc.Encrypted, symKey, enc.IV)
-	return string(decrypted), err
+	return string(decrypted), err, symKey
 }
 
 func stringPrintable(s string) (bool) {
@@ -128,7 +128,7 @@ func handleDecrypted(ticketStr string) (error, []tasking.TaskError) {
 		if e != nil {
 			e2 := tasking.MyError{Error: e}
 			tskerrors = append(tskerrors, tasking.TaskError{
-				TaskStruct : &task,
+				TaskStruct : task,
 				Error : e2})
 		} else {
 			pushToTransport(task)
@@ -181,20 +181,20 @@ func pushToTransport(task tasking.Task) {
 	}
 }
 
-func handleIncoming(task *tasking.Encrypted) (error, []tasking.TaskError){
-	decTicket, err := decryptTicket(task)
+func handleIncoming(task *tasking.Encrypted) (error, []tasking.TaskError, []byte){
+	decTicket, err, symKey := decryptTicket(task)
 	if err != nil {
 		log.Println("Error while decrypting: ", err)
-		return err, nil
+		return err, nil, symKey
 	}
 	log.Println("Decrypted ticket:", decTicket)
 	err, tskerrors := handleDecrypted(decTicket)
 	if err != nil {
 		log.Println("Error: ", err)
-		return err, nil
+		return err, nil, symKey
 	}
 	// return all the collected errors for individual tasks
-	return nil, tskerrors
+	return nil, tskerrors, symKey
 }
 
 func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
@@ -205,14 +205,17 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err, tskerrors := handleIncoming(task)
+	err, tskerrors, symKey := handleIncoming(task)
 	//TODO: encrypt answer
+	task.IV[0] ^= 1
 	if err != nil {
-		w.Write([]byte(err.Error()))
+		enc, _ := tasking.AesEncrypt([]byte(err.Error()), symKey, task.IV)
+		w.Write(enc)
 	} else {
 		log.Printf("Collected errors: %+v", tskerrors)
 		x, _ := json.Marshal(tskerrors)
-		w.Write(x)
+		enc, _ := tasking.AesEncrypt(x, symKey, task.IV)
+		w.Write(enc)
 	}
 }
 

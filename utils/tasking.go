@@ -57,7 +57,7 @@ type MyError struct {
 }
 
 type TaskError struct {
-	TaskStruct* Task
+	TaskStruct Task
 	Error       MyError
 }
 

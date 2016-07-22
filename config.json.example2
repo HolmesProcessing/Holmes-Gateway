@@ -1,0 +1,11 @@
+{
+	"HTTP":            ":8081",
+	"SourcesKeysPath": "keys",
+	"TicketKeysPath":  "keys",
+	"RabbitURI":       "localhost:5672/",
+	"RabbitUser":      "guest",
+	"RabbitPassword":  "guest",
+	"RabbitQueue":     "totem_input",
+	"RoutingKey":      "work.static.totem",
+	"Exchange":        "totem"
+}

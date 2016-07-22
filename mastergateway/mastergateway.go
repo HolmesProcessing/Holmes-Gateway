@@ -80,7 +80,7 @@ func encryptTicket(ticket []byte, asymKeyId string, symKey []byte, iv []byte) (*
 	return &encryptedTicket, err
 }
 
-func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error, []byte) {
+func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []byte) (error, []byte) {
 	req, err := http.NewRequest("GET", uri, nil)
 	q := req.URL.Query()
 	q.Add("KeyFingerprint", encryptedTicket.KeyFingerprint)
@@ -92,9 +92,10 @@ func requestTask(uri string, encryptedTicket *tasking.Encrypted) (error, []byte)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	tskerrors, _ := ioutil.ReadAll(resp.Body)
-	log.Printf("Received: %+v\n", string(tskerrors))
-	//TODO: Decrypt and handle answer
-	return err, tskerrors
+	encryptedTicket.IV[0] ^= 1
+	tskerrorsDec, _ := tasking.AesDecrypt(tskerrors, symKey, encryptedTicket.IV)
+	log.Printf("Received: %+v\n", string(tskerrorsDec))
+	return err, tskerrorsDec
 }
 
 func handleTask(tasksStr string) (error, []tasking.TaskError) {
@@ -116,7 +117,7 @@ func handleTask(tasksStr string) (error, []tasking.TaskError) {
 		if !found {
 			log.Printf("No route for source %s!\n", task.Source)
 			tskerrors = append(tskerrors, tasking.TaskError{
-				TaskStruct : &task,
+				TaskStruct : task,
 				Error : tasking.MyError{Error: errors.New("No route for source!")}})
 			continue
 		}
@@ -139,6 +140,7 @@ func handleTask(tasksStr string) (error, []tasking.TaskError) {
 		if err != nil {
 			log.Printf("Error while parsing result")
 		}
+		// TODO: handle answer
 		tskerrors = append(tskerrors, tskOrgErrorsP...)
 	}
 	// TODO: collect tskerrors and return them
@@ -186,7 +188,7 @@ func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byt
 		return err, nil
 	}
 	// Issue HTTP-GET-Request
-	err, tskerrors := requestTask(uri, et)
+	err, tskerrors := requestTaskList(uri, et, symKey)
 	if err != nil {
 		log.Println("Error requesting task: ", err)
 		return err, tskerrors
@@ -228,8 +230,15 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		w.Write([]byte(err.Error()+"\n"))
 	} else if len(tskerrors) != 0 {
-		x, _ := json.Marshal(tskerrors)
-		w.Write(x)
+		// TODO: For automatical decoding it might be better to Marshal the whole slice
+		// instead of the individual elements
+		//x, _ := json.Marshal(tskerrors)
+		//w.Write(x)
+		for _, j := range(tskerrors) {
+			x, _ := json.Marshal(j)
+			w.Write(x)
+			w.Write([]byte("\n\n"))
+		}
 	}
 }
 
