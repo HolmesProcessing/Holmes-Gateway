@@ -9,6 +9,8 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"net/http/httputil"
 	"crypto/rsa"
 	"crypto/rand"
 	"encoding/json"
@@ -21,6 +23,7 @@ type config struct {
 	SourcesKeysPath     string // Path to the public keys of the sources
 	TicketSignKeyPath   string // Path to the private key used for signing tickets
 	Organizations []tasking.Organization // All the known organizations
+	StorageURI          string // URI of HolmesStorage
 }
 
 var (
@@ -30,6 +33,8 @@ var (
 	ticketSignKey *rsa.PrivateKey              // The private key used for signing tickets
 	ticketSignKeyName string                   // The id of the private key used for signing tickets
 	srcRouter map[string]*tasking.Organization // Which source should be routed to which organization
+	storageURI url.URL                        // The URL to storage for redirecting object-storage requests
+	proxy *httputil.ReverseProxy               // The proxy object for redirecting object-storage requests
 )
 
 func createTicket(tasks []tasking.Task) (tasking.Ticket, error){
@@ -223,7 +228,7 @@ func readKeys() {
 	}
 }
 
-func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
+func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 	task := r.FormValue("task")
 	err, tskerrors := handleTask(task)
 	if err != nil {
@@ -242,8 +247,17 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func httpRequestIncomingSample(w http.ResponseWriter, r *http.Request) {
+	log.Println(r.URL)
+	*r.URL = storageURI
+    proxy.ServeHTTP(w, r)
+}
+
 func initHTTP() {
-	http.HandleFunc("/task/", httpRequestIncoming)
+	http.HandleFunc("/task/", httpRequestIncomingTask)
+	storageURI, _ := url.Parse(conf.StorageURI)
+	proxy = httputil.NewSingleHostReverseProxy(storageURI)
+	http.HandleFunc("/samples/", httpRequestIncomingSample)
 	log.Printf("Listening on %s\n", conf.HTTP)
 	log.Fatal(http.ListenAndServe(conf.HTTP, nil))
 }

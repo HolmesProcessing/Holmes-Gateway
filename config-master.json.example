@@ -3,5 +3,6 @@
 	"SourcesKeysPath":   "keys",
 	"TicketSignKeyPath": "keys/sign.priv",
 	"Organizations":     [{"Name": "Org1", "Uri": "http://localhost:8080/task/", "Sources": ["foo","bar"]},
-	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}]
+	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}],
+	"StorageURI":        "http://127.0.0.1:8060/samples/"
 }
