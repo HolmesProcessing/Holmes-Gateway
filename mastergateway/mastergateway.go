@@ -6,6 +6,7 @@ import (
 	"log"
 	"sync"
 	"time"
+	"bytes"
 	"errors"
 	"io/ioutil"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"net/http/httputil"
 	"crypto/rsa"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"encoding/base64"
 	"../utils"
@@ -250,7 +252,39 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 func httpRequestIncomingSample(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.URL)
 	*r.URL = storageURI
-    proxy.ServeHTTP(w, r)
+	// Reading the body modifies the Buffer, so we need to create two buffers, one for
+	// reading and the original one to restore the body
+	buf, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Println("Error reading request", err)
+		return
+	}
+	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
+	rdr2 := ioutil.NopCloser(bytes.NewBuffer(buf))
+	r.Body = rdr2
+	
+	f, hdr, err := r.FormFile("sample")
+	if err != nil{
+		log.Println("Error getting sample", err)
+		return
+	}
+
+	buf2, err := ioutil.ReadAll(f)
+	if err != nil{
+		log.Println("Error reading sample", err)
+		return
+	}
+
+
+	h := sha256.Sum256(buf2)
+	log.Printf(">>>>===============\n%+v\n", hdr.Filename)
+	log.Printf("%x\n<<<===============\n", h)
+
+	r.Body = rdr // Restore the original buffer
+	proxy.ServeHTTP(w, r)
+
+	// TODO: use the calculated sha256sum for automatically setting up tasks
+	log.Printf("%+v\n", r)
 }
 
 func initHTTP() {
