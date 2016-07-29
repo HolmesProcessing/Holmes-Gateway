@@ -14,7 +14,6 @@ import (
 	"net/http/httputil"
 	"crypto/rsa"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"encoding/base64"
 	"../utils"
@@ -249,48 +248,60 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type myTransport struct{
+
+}
+
+type storageResult struct {
+	Sha256 string
+	Sha1 string
+	Md5 string
+	Mime string
+	Source []string
+	Objname []string
+	Submissions []string
+}
+
+type storageResponse struct {
+	ResponseCode int
+	Failure string
+	Result storageResult
+}
+
+func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(request)
+
+	var resp storageResponse
+	buf, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading body!", err)
+	}
+	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
+	
+	// Parse the response. If it was successful, execute automatic tasks
+	json.Unmarshal(buf, &resp)
+	log.Printf("%+v\n", resp)
+	if resp.ResponseCode == 1 {
+		log.Printf("SUCCESS! SHA256: %s",resp.Result.Sha256)
+		//TODO: Execute automatic tasks
+	}
+
+	response.Body = rdr
+	return response, err
+}
+
 func httpRequestIncomingSample(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.URL)
 	*r.URL = storageURI
-	// Reading the body modifies the Buffer, so we need to create two buffers, one for
-	// reading and the original one to restore the body
-	buf, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		log.Println("Error reading request", err)
-		return
-	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
-	rdr2 := ioutil.NopCloser(bytes.NewBuffer(buf))
-	r.Body = rdr2
-	
-	f, hdr, err := r.FormFile("sample")
-	if err != nil{
-		log.Println("Error getting sample", err)
-		return
-	}
 
-	buf2, err := ioutil.ReadAll(f)
-	if err != nil{
-		log.Println("Error reading sample", err)
-		return
-	}
-
-
-	h := sha256.Sum256(buf2)
-	log.Printf(">>>>===============\n%+v\n", hdr.Filename)
-	log.Printf("%x\n<<<===============\n", h)
-
-	r.Body = rdr // Restore the original buffer
 	proxy.ServeHTTP(w, r)
-
-	// TODO: use the calculated sha256sum for automatically setting up tasks
-	log.Printf("%+v\n", r)
 }
 
 func initHTTP() {
 	http.HandleFunc("/task/", httpRequestIncomingTask)
 	storageURI, _ := url.Parse(conf.StorageURI)
 	proxy = httputil.NewSingleHostReverseProxy(storageURI)
+	proxy.Transport = &myTransport{}
 	http.HandleFunc("/samples/", httpRequestIncomingSample)
 	log.Printf("Listening on %s\n", conf.HTTP)
 	log.Fatal(http.ListenAndServe(conf.HTTP, nil))
