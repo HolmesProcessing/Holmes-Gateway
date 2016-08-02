@@ -4,5 +4,7 @@
 	"TicketSignKeyPath": "keys/sign.priv",
 	"Organizations":     [{"Name": "Org1", "Uri": "http://localhost:8080/task/", "Sources": ["foo","bar"]},
 	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}],
-	"StorageURI":        "http://127.0.0.1:8060/samples/"
+	"OwnOrganization":   "Org1",
+	"StorageURI":        "http://10.0.4.79:8016/samples/",
+	"AutoTasks":         {"PEINFO":[""],"YARA":[""]}
 }

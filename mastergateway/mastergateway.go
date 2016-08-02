@@ -24,7 +24,9 @@ type config struct {
 	SourcesKeysPath     string // Path to the public keys of the sources
 	TicketSignKeyPath   string // Path to the private key used for signing tickets
 	Organizations []tasking.Organization // All the known organizations
+	OwnOrganization     string // The name of the own organization (Should also be present in the list "Organizations")
 	StorageURI          string // URI of HolmesStorage
+	AutoTasks           map[string][]string // Tasks that should be automatically executed on new objects
 }
 
 var (
@@ -34,7 +36,8 @@ var (
 	ticketSignKey *rsa.PrivateKey              // The private key used for signing tickets
 	ticketSignKeyName string                   // The id of the private key used for signing tickets
 	srcRouter map[string]*tasking.Organization // Which source should be routed to which organization
-	storageURI url.URL                        // The URL to storage for redirecting object-storage requests
+	ownOrganization *tasking.Organization      // Pointer to the own organization in the list of organizations
+	storageURI url.URL                         // The URL to storage for redirecting object-storage requests
 	proxy *httputil.ReverseProxy               // The proxy object for redirecting object-storage requests
 )
 
@@ -99,8 +102,9 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	resp, err := client.Do(req)
 	tskerrors, _ := ioutil.ReadAll(resp.Body)
 	encryptedTicket.IV[0] ^= 1
+	log.Printf("Received: %+v\n", string(tskerrors))
 	tskerrorsDec, _ := tasking.AesDecrypt(tskerrors, symKey, encryptedTicket.IV)
-	log.Printf("Received: %+v\n", string(tskerrorsDec))
+	log.Printf("Decrypted: %+v\n", string(tskerrorsDec))
 	return err, tskerrorsDec
 }
 
@@ -149,7 +153,7 @@ func handleTask(tasksStr string) (error, []tasking.TaskError) {
 		// TODO: handle answer
 		tskerrors = append(tskerrors, tskOrgErrorsP...)
 	}
-	// TODO: collect tskerrors and return them
+	// collect tskerrors and return them
 	return nil, tskerrors
 }
 
@@ -258,7 +262,7 @@ type storageResult struct {
 	Md5 string
 	Mime string
 	Source []string
-	Objname []string
+	Objname []string `json:obj_name`
 	Submissions []string
 }
 
@@ -282,8 +286,27 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 	json.Unmarshal(buf, &resp)
 	log.Printf("%+v\n", resp)
 	if resp.ResponseCode == 1 {
-		log.Printf("SUCCESS! SHA256: %s",resp.Result.Sha256)
-		//TODO: Execute automatic tasks
+		log.Printf("Successfully uploaded sample with SHA256: %s",resp.Result.Sha256)
+		// Execute automatic tasks
+		if len(conf.AutoTasks) != 0 {
+			task := tasking.Task{
+				PrimaryURI : conf.StorageURI + resp.Result.Sha256,
+				SecondaryURI : "",
+				Filename : "dummyName",
+				Tasks : conf.AutoTasks,
+				Tags : []string{},
+				Attempts : 0,
+				Source : "dummySrc" }
+			if len(resp.Result.Objname) != 0 {
+				task.Filename = resp.Result.Objname[0]
+			}
+			if len(resp.Result.Source) != 0 {
+				task.Source = resp.Result.Source[0]
+			}
+			log.Printf("Automatically executing %+v\n", task)
+			task.Source = ownOrganization.Sources[0] //TODO! This should not be necessary!
+			sendTaskList([]tasking.Task{task}, ownOrganization)
+		}
 	}
 
 	response.Body = rdr
@@ -309,6 +332,7 @@ func initHTTP() {
 
 func initSourceRouting() {
 	//TODO: make this dynamically configurable
+	ownOrganization = nil
 	srcRouter = make(map[string]*tasking.Organization)
 	log.Println("=====")
 	for num, org := range(conf.Organizations) {
@@ -316,9 +340,15 @@ func initSourceRouting() {
 		for _, src := range(org.Sources) {
 			srcRouter[src] = &conf.Organizations[num]
 		}
+		if org.Name == conf.OwnOrganization {
+			ownOrganization = &conf.Organizations[num]
+		}
 	}
 	log.Println("=====")
-	log.Println(srcRouter)	
+	log.Println(srcRouter)
+	if ownOrganization == nil {
+		log.Fatal("Own organization was not found")
+	}
 }
 
 func Start(confPath string) {

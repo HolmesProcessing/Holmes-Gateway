@@ -40,7 +40,7 @@ func decryptTicket(enc *tasking.Encrypted) (string, error, []byte) {
 	asymKey, exists := keys[enc.KeyFingerprint]
 	keysMutex.Unlock()
 	if !exists {
-		return "", errors.New("Private key not found"), nil
+		return "", errors.New("Private key " + enc.KeyFingerprint + " not found"), nil
 	}
 	
 	// Decrypt symmetric key using the asymmetric key
