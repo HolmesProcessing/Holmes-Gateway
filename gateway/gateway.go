@@ -211,8 +211,8 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err, tskerrors, symKey := handleIncoming(task)
-	//TODO: encrypt answer
-	task.IV[0] ^= 1
+	// encrypt answer
+	task.IV[0] ^= 1 // Do not reuse the same IV -> modify one bit
 	if err != nil {
 		enc, _ := tasking.AesEncrypt([]byte(err.Error()), symKey, task.IV)
 		w.Write(enc)

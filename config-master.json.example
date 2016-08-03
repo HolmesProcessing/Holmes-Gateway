@@ -6,5 +6,7 @@
 	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}],
 	"OwnOrganization":   "Org1",
 	"StorageURI":        "http://10.0.4.79:8016/samples/",
-	"AutoTasks":         {"PEINFO":[""],"YARA":[""]}
+	"AutoTasks":         {"PEINFO":[""],"YARA":[""]},
+	"CertificateKeyPath":"cert-key.pem",
+	"CertificatePath":   "cert.pem"
 }

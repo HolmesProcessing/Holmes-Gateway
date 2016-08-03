@@ -27,6 +27,8 @@ type config struct {
 	OwnOrganization     string // The name of the own organization (Should also be present in the list "Organizations")
 	StorageURI          string // URI of HolmesStorage
 	AutoTasks           map[string][]string // Tasks that should be automatically executed on new objects
+	CertificatePath     string
+	CertificateKeyPath  string
 }
 
 var (
@@ -327,7 +329,7 @@ func initHTTP() {
 	proxy.Transport = &myTransport{}
 	http.HandleFunc("/samples/", httpRequestIncomingSample)
 	log.Printf("Listening on %s\n", conf.HTTP)
-	log.Fatal(http.ListenAndServe(conf.HTTP, nil))
+	log.Fatal(http.ListenAndServeTLS(conf.HTTP, conf.CertificatePath, conf.CertificateKeyPath, nil))
 }
 
 func initSourceRouting() {
