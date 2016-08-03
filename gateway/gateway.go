@@ -15,15 +15,16 @@ import (
 )
 
 type config struct {
-	HTTP            string
-	SourcesKeysPath string
-	TicketKeysPath  string
-	RabbitURI       string
-	RabbitUser      string
-	RabbitPassword  string
-	RabbitQueue     string
-	RoutingKey      string
-	Exchange        string
+	HTTP             string
+	SourcesKeysPath  string
+	TicketKeysPath   string
+	SampleStorageURI string
+	RabbitURI        string
+	RabbitUser       string
+	RabbitPassword   string
+	RabbitQueue      string
+	RoutingKey       string
+	Exchange         string
 }
 
 
@@ -125,6 +126,10 @@ func handleDecrypted(ticketStr string) (error, []tasking.TaskError) {
 	for i := 0; i < len(ticket.Tasks); i++ {
 		task := ticket.Tasks[i]
 		e := checkTask(&task)
+		task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
+		if task.SecondaryURI != "" {
+			task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
+		}
 		if e != nil {
 			e2 := tasking.MyError{Error: e}
 			tskerrors = append(tskerrors, tasking.TaskError{
