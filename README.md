@@ -104,3 +104,4 @@ curl --data 'username=test&password=test&task=[{"primaryURI":"3a12f43eeb0c45d241
 If no error occured, nothing will be returned. Otherwise a list containing the
 faulty tasks, as well as a description of the errors will be returned.
 
+You can also use the Web-Interface by opening the file *submit_task.html* in your browser. However, you will need to create an exception for the certificate by visiting the website of the master-gateway manually, before you can use the web interface.

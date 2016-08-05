@@ -250,6 +250,7 @@ func readKeys() {
 }
 
 func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	task := r.FormValue("task")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
