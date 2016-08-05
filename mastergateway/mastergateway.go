@@ -243,7 +243,8 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()+"\n"))
 	} else if len(tskerrors) != 0 {
 		// TODO: For automatical decoding it might be better to Marshal the whole slice
-		// instead of the individual elements
+		// instead of the individual elements. For readability, here every element is
+		// individually marshalled and newlines are appended.
 		//x, _ := json.Marshal(tskerrors)
 		//w.Write(x)
 		for _, j := range(tskerrors) {
@@ -275,8 +276,31 @@ type storageResponse struct {
 }
 
 func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
+	// Since accessing the Form-values of the request changes the reader,
+	// which cannot be rewinded / seeked, an error would be thrown, if the
+	// request was forwarded with the reader at the wrong position.
+	// For this reason, the whole body is read and two new readers are created:
+	// One to read the Form-values from, and one for restoring the original.
+	reqbuf, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		log.Printf("Error reading body!", err)
+	}
+	reqrdr := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
+	reqrdr2 := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
+	request.Body = reqrdr
+
+	// Read the name and the source from the request, because they can not be
+	// reconstructed from storage's response.
+	name := request.FormValue("name")
+	source := request.FormValue("source")
+
+	// restore the reader for the body
+	request.Body = reqrdr2
+
+	// Do the proxy-request
 	response, err := http.DefaultTransport.RoundTrip(request)
 
+	// Parse the response. If it was successful, execute automatic tasks
 	var resp storageResponse
 	buf, err := ioutil.ReadAll(response.Body)
 	if err != nil {
@@ -284,7 +308,6 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 	}
 	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
 	
-	// Parse the response. If it was successful, execute automatic tasks
 	json.Unmarshal(buf, &resp)
 	log.Printf("%+v\n", resp)
 	if resp.ResponseCode == 1 {
@@ -294,23 +317,18 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 			task := tasking.Task{
 				PrimaryURI : conf.StorageURI + resp.Result.Sha256,
 				SecondaryURI : "",
-				Filename : "dummyName",
+				Filename : name,
 				Tasks : conf.AutoTasks,
 				Tags : []string{},
 				Attempts : 0,
-				Source : "dummySrc" }
-			if len(resp.Result.Objname) != 0 {
-				task.Filename = resp.Result.Objname[0]
-			}
-			if len(resp.Result.Source) != 0 {
-				task.Source = resp.Result.Source[0]
-			}
+				Source : source }
+
 			log.Printf("Automatically executing %+v\n", task)
-			task.Source = ownOrganization.Sources[0] //TODO! This should not be necessary!
 			sendTaskList([]tasking.Task{task}, ownOrganization)
 		}
 	}
 
+	// restore the reader for the body
 	response.Body = rdr
 	return response, err
 }
