@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"crypto/rsa"
 	"crypto/rand"
+	"golang.org/x/crypto/bcrypt"
 	"encoding/json"
 	"encoding/base64"
 	"../utils"
@@ -29,6 +30,7 @@ type config struct {
 	AutoTasks           map[string][]string // Tasks that should be automatically executed on new objects
 	CertificatePath     string
 	CertificateKeyPath  string
+	AllowedUsers        map[string]string // Map: Username -> Password-hash (TODO: Move to storage)
 }
 
 var (
@@ -110,12 +112,24 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	return err, tskerrorsDec
 }
 
-func handleTask(tasksStr string) (error, []tasking.TaskError) {
+func handleTask(tasksStr string, username string, password string) (error, []tasking.TaskError) {
 	tskerrors := make([]tasking.TaskError, 0)
-	// TODO: Authenticate Request and check ACL!
+	// Authenticate
+	// TODO: Ask storage instead of configuration file for credentials
+	password_hash, exists := conf.AllowedUsers[username]
+	if !exists {
+		// TODO: Maybe compare some dummy value to prevent timing based attack
+		return errors.New("Authentication failed"), nil
+	}
+	err := bcrypt.CompareHashAndPassword([]byte(password_hash), []byte(password))
+	if err != nil {
+		return errors.New("Authentication failed"), nil
+	} else {
+		log.Printf("Authenticated as %s\n", username)
+	}
 	var tasks []tasking.Task
 	log.Println("Task: ", tasksStr)
-	err := json.Unmarshal([]byte(tasksStr), &tasks)
+	err = json.Unmarshal([]byte(tasksStr), &tasks)
 	if err != nil {
 		log.Println("Error while unmarshalling tasks: ", err)
 		return err, tskerrors
@@ -237,7 +251,9 @@ func readKeys() {
 
 func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 	task := r.FormValue("task")
-	err, tskerrors := handleTask(task)
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+	err, tskerrors := handleTask(task, username, password)
 	if err != nil {
 		log.Println(err)
 		w.Write([]byte(err.Error()+"\n"))

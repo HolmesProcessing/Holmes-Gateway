@@ -22,7 +22,7 @@
 				data: datastring,
 				success: function(a,b,c) {$(results).val(a);}
 			});*/
-			$("#myframe")[0].src = $(url).val()+"?"+encodeURI(datastring);
+			$("#myframe")[0].src = $(url).val()+"?"+encodeURI(datastring)+"&username="+encodeURI($(username).val())+"&password="+encodeURI($(password).val());
 			
 		}
 		function append_example(){
@@ -31,7 +31,15 @@
 	</script>
 	<body>
 		<form id="myform" name="subm" action = "https://localhost:8090/task/" method="GET">
-			<input type="text" id="url" value="https://localhost:8090/task/" style="width:100%">
+			<table style="width:100%">
+			<tr><td>
+			Gateway-URI:</td><td style="width:80%"><input type="text" id="url" value="https://localhost:8090/task/" style="width:100%">
+			</td></tr><tr><td>
+			Username:</td><td><input type="text" id="username" value="test" style="width:100%">
+			</td></tr><tr><td>
+			Password:<td><input type="text" id="password" value="test" style="width:100%">
+			</td></tr>
+			</table>
 			<p>Tasks</p>
 			<textarea id="taskarea" name="task" style="width:100%;height:40%"></textarea>
 			<!--<textarea id="results" style="width:100%;height:30%"></textarea>-->
