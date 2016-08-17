@@ -25,6 +25,9 @@ type config struct {
 	RabbitQueue      string
 	RoutingKey       string
 	Exchange         string
+	RabbitQueueLong  string
+	RoutingKeyLong   string
+	ExchangeLong     string
 }
 
 
@@ -34,6 +37,8 @@ var ticketKeys map[string]*rsa.PublicKey
 var keysMutex = &sync.Mutex{}
 var rabbitChannel *amqp.Channel
 var rabbitQueue amqp.Queue
+var rabbitChannelLong *amqp.Channel
+var rabbitQueueLong amqp.Queue
 
 func decryptTicket(enc *tasking.Encrypted) (string, error, []byte) {
 	// Fetch private key corresponding to enc.keyFingerprint
@@ -173,13 +178,24 @@ func pushToTransport(task tasking.Task) {
 		log.Println("Error while Marshalling: ", err)
 		return
 	}
-	log.Printf("Pushing: \x1b[0;32m%s\x1b[0m\n", msgBody)
-	err = rabbitChannel.Publish(
-		conf.Exchange,    // exchange
-		conf.RoutingKey,  // key
-		false,            // mandatory
-		false,            // immediate
-		amqp.Publishing {DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody,}) //msg
+	if task.Long {
+		log.Printf("Pushing to long: \x1b[0;32m%s\x1b[0m\n", msgBody)
+		err = rabbitChannelLong.Publish(
+			conf.ExchangeLong,   // exchange
+			conf.RoutingKeyLong, // key
+			false,               // mandatory
+			false,               // immediate
+			amqp.Publishing {DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody,}) //msg
+
+	} else {
+		log.Printf("Pushing: \x1b[0;32m%s\x1b[0m\n", msgBody)
+		err = rabbitChannel.Publish(
+			conf.Exchange,    // exchange
+			conf.RoutingKey,  // key
+			false,            // mandatory
+			false,            // immediate
+			amqp.Publishing {DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody,}) //msg
+	}
 	if err != nil {
 		log.Println("Error while pushing to transport: ", err)
 		return
@@ -307,7 +323,41 @@ func connectRabbit() {
 	)
 	tasking.FailOnError(err, "Failed to bind queue")
 
-	log.Printf("Connected to Rabbit on channel %s\n", rabbitQueue.Name)
+	// Long
+	rabbitChannelLong, err = conn.Channel()
+	tasking.FailOnError(err, "Failed to open a channel")
+	rabbitQueue, err = rabbitChannelLong.QueueDeclare(
+		conf.RabbitQueueLong, //name
+		true,                 // durable
+		false,                // delete when unused
+		false,                // exclusive
+		false,                // no-wait
+		nil,                  // arguments
+	)
+	tasking.FailOnError(err, "Failed to declare a queue")
+
+	err = rabbitChannelLong.ExchangeDeclare(
+		conf.ExchangeLong, // name
+		"topic",           // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
+	)
+	tasking.FailOnError(err, "Failed to declare an exchange")
+
+	err = rabbitChannelLong.QueueBind(
+		rabbitQueueLong.Name, // queue name
+		conf.RoutingKeyLong,  // routing key
+		conf.ExchangeLong,    // exchange
+		false,                // nowait
+		nil,                  // arguments
+	)
+	tasking.FailOnError(err, "Failed to bind queue")
+
+
+	log.Printf("Connected to Rabbit on channels %s and %s\n", rabbitQueue.Name, rabbitQueueLong.Name)
 }
 
 func initHTTP() {

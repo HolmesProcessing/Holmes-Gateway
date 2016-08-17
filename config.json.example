@@ -8,5 +8,8 @@
 	"RabbitPassword":   "guest",
 	"RabbitQueue":      "totem_input",
 	"RoutingKey":       "work.static.totem",
-	"Exchange":         "totem"
+	"Exchange":         "totem",
+	"RabbitQueueLong":  "totem_input_long",
+	"RoutingKeyLong":   "work.static.totemlong",
+	"ExchangeLong":     "totemlong"
 }

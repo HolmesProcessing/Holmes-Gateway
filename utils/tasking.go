@@ -43,6 +43,7 @@ type Task struct {
 	Tasks          map[string][]string `json:"tasks"`
 	Tags           []string            `json:"tags"`
 	Attempts       int                 `json:"attempts"`
+	Long           bool                `json:"long"`
 	Source         string              `json:"source"`
 }
 
