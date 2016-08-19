@@ -95,6 +95,9 @@ func encryptTicket(ticket []byte, asymKeyId string, symKey []byte, iv []byte) (*
 
 func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []byte) (error, []byte) {
 	req, err := http.NewRequest("GET", uri, nil)
+	if err != nil {
+		return err, nil
+	}
 	q := req.URL.Query()
 	q.Add("KeyFingerprint", encryptedTicket.KeyFingerprint)
 	q.Add("EncryptedKey", base64.StdEncoding.EncodeToString(encryptedTicket.EncryptedKey))
@@ -104,6 +107,9 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	log.Println(req.URL)
 	client := &http.Client{}
 	resp, err := client.Do(req)
+	if err != nil {
+		return err, nil
+	}
 	tskerrors, _ := ioutil.ReadAll(resp.Body)
 	encryptedTicket.IV[0] ^= 1
 	log.Printf("Received: %+v\n", string(tskerrors))
@@ -160,11 +166,24 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 		err, tskOrgErrors := sendTaskList(tasklist, org)
 		if err != nil {
 			log.Println("Error while sending tasks: ", err)
+			for task := range tasklist {
+				tskerrors = append(tskerrors, tasking.TaskError{
+					TaskStruct : tasklist[task],
+					Error: tasking.MyError{Error: errors.New("Error while sending task! " + err.Error())}})
+			}
+			continue
 		}
 		var tskOrgErrorsP []tasking.TaskError
 		err = json.Unmarshal(tskOrgErrors, &tskOrgErrorsP)
 		if err != nil {
 			log.Printf("Error while parsing result")
+			for task := range tasklist {
+				tskerrors = append(tskerrors, tasking.TaskError{
+					TaskStruct : tasklist[task],
+					Error: tasking.MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
+			}
+			continue
+
 		}
 		// TODO: handle answer
 		tskerrors = append(tskerrors, tskOrgErrorsP...)
@@ -257,7 +276,7 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 	err, tskerrors := handleTask(task, username, password)
 	if err != nil {
 		log.Println(err)
-		w.Write([]byte(err.Error()+"\n"))
+		http.Error(w, err.Error(), 500)
 	} else if len(tskerrors) != 0 {
 		// TODO: For automatical decoding it might be better to Marshal the whole slice
 		// instead of the individual elements. For readability, here every element is
@@ -301,6 +320,7 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 	reqbuf, err := ioutil.ReadAll(request.Body)
 	if err != nil {
 		log.Printf("Error reading body!", err)
+		return nil, err
 	}
 	reqrdr := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
 	reqrdr2 := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
@@ -316,12 +336,17 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 
 	// Do the proxy-request
 	response, err := http.DefaultTransport.RoundTrip(request)
+	if err != nil {
+		log.Printf("Error performing proxy-request!", err)
+		return nil, err
+	}
 
 	// Parse the response. If it was successful, execute automatic tasks
 	var resp storageResponse
 	buf, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Printf("Error reading body!", err)
+		return nil, err
 	}
 	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
 	
@@ -338,7 +363,9 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 				Tasks : conf.AutoTasks,
 				Tags : []string{},
 				Attempts : 0,
-				Source : source }
+				Source : source,
+				Download: true,
+			}
 
 			log.Printf("Automatically executing %+v\n", task)
 			sendTaskList([]tasking.Task{task}, ownOrganization)

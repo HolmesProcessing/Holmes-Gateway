@@ -21,14 +21,18 @@
 				url:  $(url).val(),
 				data: datastring,
 				success: function(result,status,xhr) {$(results).val(result);},
-				error: function(xhr,status,error) {$(results).val("There was an error. The most likely problem is that your browser does not accept the certificate of the master-gateway. Try visiting the site of the gateway and accepting the certificate manually and then retry.");}
+				error: function(xhr,status,error) {$(results).val("There was an error.\nResponse: " + xhr.responseText + "\nStatus Code: " + xhr.status + " ("+xhr.statusText+")");
+					if (xhr.status == 0) {
+						$(results).val($(results).val()+"\nThis problem can occur, if your browser does not accept the certificate of the master-gateway. Try visiting the site of the gateway and accepting the certificate manually and then retry.")
+					}
+			}
 			});
 			/*$("#myframe")[0].src = $(url).val()+"?"+encodeURI(datastring)+"&username="+encodeURI($(username).val())+"&password="+encodeURI($(password).val());
 			*/
 			
 		}
 		function append_example(){
-			$(taskarea).val($(taskarea).val()+'{"primaryURI":"3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":0,"source":"foo"}\n');
+			$(taskarea).val($(taskarea).val()+'{"primaryURI":"3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":0,"source":"foo","download":true}\n');
 		}
 	</script>
 	<body>

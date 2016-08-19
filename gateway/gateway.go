@@ -15,8 +15,9 @@ import (
 )
 
 type RabbitConf struct {
-	Queue    string
-	Exchange string
+	Queue      string
+	Exchange   string
+	RoutingKey string
 }
 
 type config struct {
@@ -27,9 +28,7 @@ type config struct {
 	RabbitURI          string
 	RabbitUser         string
 	RabbitPassword     string
-	RoutingKey         string
-	RabbitQueueDefault string
-	ExchangeDefault    string
+	RabbitDefault      RabbitConf
 	Rabbit             map[string]RabbitConf
 }
 
@@ -39,7 +38,6 @@ var keys map[string]*rsa.PrivateKey
 var ticketKeys map[string]*rsa.PublicKey
 var keysMutex = &sync.Mutex{}
 var rabbitChannel *amqp.Channel
-var rabbitQueue amqp.Queue
 
 func decryptTicket(enc *tasking.Encrypted) (string, error, []byte) {
 	// Fetch private key corresponding to enc.keyFingerprint
@@ -187,13 +185,12 @@ func pushToTransport(task tasking.Task) {
 		}
 		rconf, exists := conf.Rabbit[t]
 		if !exists {
-			rconf.Exchange = conf.ExchangeDefault
-			rconf.Queue = conf.RabbitQueueDefault
+			rconf = conf.RabbitDefault
 		}
 		log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", rconf.Exchange, msgBody)
 		err = rabbitChannel.Publish(
 			rconf.Exchange,   // exchange
-			conf.RoutingKey,  // key
+			rconf.RoutingKey, // key
 			false,            // mandatory
 			false,            // immediate
 			amqp.Publishing {DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody,}) //msg
@@ -287,6 +284,39 @@ func readKeys() {
 	
 }
 
+func addRabbitConf(r RabbitConf) {
+	queue, err := rabbitChannel.QueueDeclare(
+		r.Queue, //name
+		true,    // durable
+		false,   // delete when unused
+		false,   // exclusive
+		false,   // no-wait
+		nil,     // arguments
+	)
+	tasking.FailOnError(err, "Failed to declare a queue")
+
+	err = rabbitChannel.ExchangeDeclare(
+		r.Exchange, // name
+		"topic",    // type
+		true,       // durable
+		false,      // auto-deleted
+		false,      // internal
+		false,      // no-wait
+		nil,        // arguments
+	)
+	tasking.FailOnError(err, "Failed to declare an exchange")
+
+	err = rabbitChannel.QueueBind(
+		queue.Name,   // queue name
+		r.RoutingKey, // routing key
+		r.Exchange,   // exchange
+		false,        // nowait
+		nil,          // arguments
+	)
+	tasking.FailOnError(err, "Failed to bind queue")
+
+}
+
 func connectRabbit() {
 	conn, err := amqp.Dial("amqp://"+conf.RabbitUser+":"+conf.RabbitPassword+"@"+conf.RabbitURI)
 	tasking.FailOnError(err, "Failed to connect to RabbitMQ")
@@ -295,38 +325,13 @@ func connectRabbit() {
 	rabbitChannel, err = conn.Channel()
 	tasking.FailOnError(err, "Failed to open a channel")
 	//defer rabbitChannel.Close()
+	addRabbitConf(conf.RabbitDefault)
 
-	rabbitQueue, err = rabbitChannel.QueueDeclare(
-		conf.RabbitQueueDefault, //name
-		true,                    // durable
-		false,                   // delete when unused
-		false,                   // exclusive
-		false,                   // no-wait
-		nil,                     // arguments
-	)
-	tasking.FailOnError(err, "Failed to declare a queue")
+	for r := range conf.Rabbit {
+		addRabbitConf(conf.Rabbit[r])
+	}
 
-	err = rabbitChannel.ExchangeDeclare(
-		conf.ExchangeDefault, // name
-		"topic",              // type
-		true,                 // durable
-		false,                // auto-deleted
-		false,                // internal
-		false,                // no-wait
-		nil,                  // arguments
-	)
-	tasking.FailOnError(err, "Failed to declare an exchange")
-
-	err = rabbitChannel.QueueBind(
-		rabbitQueue.Name,     // queue name
-		conf.RoutingKey,      // routing key
-		conf.ExchangeDefault, // exchange
-		false,                // nowait
-		nil,                  // arguments
-	)
-	tasking.FailOnError(err, "Failed to bind queue")
-
-	log.Printf("Connected to Rabbit on channels %s\n", rabbitQueue.Name)
+	log.Println("Connected to Rabbit")
 }
 
 func initHTTP() {

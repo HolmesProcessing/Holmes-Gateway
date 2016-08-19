@@ -6,8 +6,6 @@
 	"RabbitURI":          "localhost:5672/",
 	"RabbitUser":         "guest",
 	"RabbitPassword":     "guest",
-	"RoutingKey":         "work.static.totem",
-	"RabbitQueueDefault": "totem_input",
-	"ExchangeDefault":    "totem",
-	"Rabbit":             {"PEINFO" : {"Queue": "totem_input2", "Exchange": "totem2"}}
+	"RabbitDefault":      {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},
+	"Rabbit":             {"PEINFO" : {"Queue": "totem_input_peinfo", "Exchange": "totem_peinfo", "RoutingKey": "work.static.totem"}}
 }
