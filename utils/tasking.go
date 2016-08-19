@@ -54,6 +54,12 @@ type Organization struct {
 	Sources    []string
 }
 
+type User struct {
+	Name         string `json:"name"`
+	Id           int    `json:"id"`
+	PasswordHash string `json:"pw"`
+}
+
 type MyError struct {
 	Error error
 }

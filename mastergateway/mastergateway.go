@@ -8,6 +8,7 @@ import (
 	"time"
 	"bytes"
 	"errors"
+	"strconv"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -24,13 +25,13 @@ type config struct {
 	HTTP                string // The HTTP-binding for listening (IP+Port)
 	SourcesKeysPath     string // Path to the public keys of the sources
 	TicketSignKeyPath   string // Path to the private key used for signing tickets
-	Organizations []tasking.Organization // All the known organizations
+	Organizations       []tasking.Organization // All the known organizations
 	OwnOrganization     string // The name of the own organization (Should also be present in the list "Organizations")
 	StorageURI          string // URI of HolmesStorage
 	AutoTasks           map[string][]string // Tasks that should be automatically executed on new objects
 	CertificatePath     string
 	CertificateKeyPath  string
-	AllowedUsers        map[string]string // Map: Username -> Password-hash (TODO: Move to storage)
+	AllowedUsers        []tasking.User
 }
 
 var (
@@ -43,6 +44,7 @@ var (
 	ownOrganization *tasking.Organization      // Pointer to the own organization in the list of organizations
 	storageURI url.URL                         // The URL to storage for redirecting object-storage requests
 	proxy *httputil.ReverseProxy               // The proxy object for redirecting object-storage requests
+	users map[string]*tasking.User             // Map: Username -> User-struct (TODO: Move to storage)
 )
 
 func createTicket(tasks []tasking.Task) (tasking.Ticket, error){
@@ -118,26 +120,26 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	return err, tskerrorsDec
 }
 
-func authenticate(username string, password string) (error) {
+func authenticate(username string, password string) (*tasking.User, error) {
 // TODO: Ask storage instead of configuration file for credentials
-	password_hash, exists := conf.AllowedUsers[username]
+	user, exists := users[username]
 	if !exists {
 		// TODO: Maybe compare some dummy value to prevent timing based attack
-		return errors.New("Authentication failed")
+		return nil, errors.New("Authentication failed")
 	}
-	err := bcrypt.CompareHashAndPassword([]byte(password_hash), []byte(password))
+	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
-		return errors.New("Authentication failed")
+		return nil, errors.New("Authentication failed")
 	} else {
 		log.Printf("Authenticated as %s\n", username)
 	}
-	return nil
+	return user, nil
 }
 
 func handleTask(tasksStr string, username string, password string) (error, []tasking.TaskError) {
 	tskerrors := make([]tasking.TaskError, 0)
-	// Authenticate
-	err := authenticate(username, password)
+	// TODO: Maybe we want to store the UID in the task
+	_, err := authenticate(username, password)
 	if err != nil{
 		return err, nil
 	}
@@ -345,11 +347,14 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 	// restore the reader for the body
 	request.Body = reqrdr2
 
-	err = authenticate(username, password)
+	user, err := authenticate(username, password)
 	if err != nil {
 		return nil, err
 	}
 
+	form, _ := url.ParseQuery(request.URL.RawQuery)
+	form.Set("user_id", strconv.Itoa(user.Id))
+	request.URL.RawQuery = form.Encode()
 	// Do the proxy-request
 	response, err := http.DefaultTransport.RoundTrip(request)
 	if err != nil {
@@ -431,6 +436,14 @@ func initSourceRouting() {
 	}
 }
 
+func initUsers() {
+	users = make(map[string]*tasking.User)
+	for u := range(conf.AllowedUsers) {
+		user := &(conf.AllowedUsers[u])
+		users[user.Name] = user
+	}
+}
+
 func Start(confPath string) {
 	// Parse the configuration
 	conf = &config{}
@@ -439,7 +452,8 @@ func Start(confPath string) {
 	tasking.FailOnError(err, "Couldn't read config file")
 
 	initSourceRouting()
-	
+	initUsers()
+
 	// Parse the public keys
 	keys = make(map[string]*rsa.PublicKey)
 	readKeys()

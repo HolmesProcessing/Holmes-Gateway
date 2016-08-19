@@ -72,7 +72,7 @@ for this purpose. Just replace the storage-URI with the URI of master-gateway.
 Also make sure, your SSL-Certificate is accepted. You can do so either by adding it to your system's certificate store or by using the command-line option *--insecure*.
 The following command uploads all files from the directory $dir to the Master-Gateway residing at 127.0.0.1:8090 using 5 threads.
 ```sh
-./Holmes-Toolbox --gateway https://127.0.0.1:8090 --user test --pw test --dir $dir --uid 1 --src foo --comment something --workers 5 --insecure
+./Holmes-Toolbox --gateway https://127.0.0.1:8090 --user test --pw test --dir $dir --src foo --comment something --workers 5 --insecure
 ```
 
 ## Requesting a Task:

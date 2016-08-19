@@ -5,8 +5,9 @@
 	"Organizations":     [{"Name": "Org1", "Uri": "http://localhost:8080/task/", "Sources": ["foo","bar"]},
 	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}],
 	"OwnOrganization":   "Org1",
-	"AllowedUsers":      {"test":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa"},
-	"StorageURI":        "http://10.0.4.79:8016/samples/",
+	"AllowedUsers":      [{"name": "test", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":0},
+	                      {"name": "test2", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":1}],
+	"StorageURI":        "http://10.0.4.79:8017/samples/",
 	"AutoTasks":         {"PEINFO":[""],"YARA":[""]},
 	"CertificateKeyPath":"cert-key.pem",
 	"CertificatePath":   "cert.pem"
