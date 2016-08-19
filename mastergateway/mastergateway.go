@@ -118,20 +118,28 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	return err, tskerrorsDec
 }
 
-func handleTask(tasksStr string, username string, password string) (error, []tasking.TaskError) {
-	tskerrors := make([]tasking.TaskError, 0)
-	// Authenticate
-	// TODO: Ask storage instead of configuration file for credentials
+func authenticate(username string, password string) (error) {
+// TODO: Ask storage instead of configuration file for credentials
 	password_hash, exists := conf.AllowedUsers[username]
 	if !exists {
 		// TODO: Maybe compare some dummy value to prevent timing based attack
-		return errors.New("Authentication failed"), nil
+		return errors.New("Authentication failed")
 	}
 	err := bcrypt.CompareHashAndPassword([]byte(password_hash), []byte(password))
 	if err != nil {
-		return errors.New("Authentication failed"), nil
+		return errors.New("Authentication failed")
 	} else {
 		log.Printf("Authenticated as %s\n", username)
+	}
+	return nil
+}
+
+func handleTask(tasksStr string, username string, password string) (error, []tasking.TaskError) {
+	tskerrors := make([]tasking.TaskError, 0)
+	// Authenticate
+	err := authenticate(username, password)
+	if err != nil{
+		return err, nil
 	}
 	var tasks []tasking.Task
 	log.Println("Task: ", tasksStr)
@@ -331,8 +339,16 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 	name := request.FormValue("name")
 	source := request.FormValue("source")
 
+	username := request.FormValue("username")
+	password := request.FormValue("password")
+
 	// restore the reader for the body
 	request.Body = reqrdr2
+
+	err = authenticate(username, password)
+	if err != nil {
+		return nil, err
+	}
 
 	// Do the proxy-request
 	response, err := http.DefaultTransport.RoundTrip(request)

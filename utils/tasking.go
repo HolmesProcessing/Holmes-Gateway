@@ -45,6 +45,7 @@ type Task struct {
 	Attempts       int                 `json:"attempts"`
 	Source         string              `json:"source"`
 	Download       bool                `json:"download"`
+	Comment        string              `json:"comment"`
 }
 
 type Organization struct {

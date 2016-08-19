@@ -97,6 +97,9 @@ func checkTask(task *tasking.Task) (error){
 	if task.Attempts < 0 {
 		return errors.New("Invalid Task (Negative number of attempts)")
 	}
+	if !stringPrintable(task.Comment) {
+		return errors.New("Invalid Task (Comment invalid)")	
+	}
 	return nil
 }
 
