@@ -5,12 +5,15 @@ import (
 	"encoding/base64"
 	"log"
 	"encoding/json"
-	"github.com/HolmesProcessing/Holmes-Gateway/utils"
+	"../utils"
 	)
 
 func TestRSA(t *testing.T) {
 	print("RSA-Test\n")
-	rsakey,_ := loadPrivateKey("keys/blub.priv")
+	rsakey,_,err := loadPrivateKey("../keys/blub.priv")
+	if err != nil {
+		t.Error(err)
+	}
 	p1 := "abcdef0123456789"
 	c, err := tasking.RsaEncrypt([]byte(p1), &rsakey.PublicKey)
 	if err != nil {

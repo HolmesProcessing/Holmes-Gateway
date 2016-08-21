@@ -3,8 +3,8 @@ import (
 	"os"
 	"flag"
 	"path/filepath"
-	"github.com/HolmesProcessing/Holmes-Gateway/mastergateway"
-	"github.com/HolmesProcessing/Holmes-Gateway/gateway"
+	"./mastergateway"
+	"./gateway"
 )
 
 func main() {

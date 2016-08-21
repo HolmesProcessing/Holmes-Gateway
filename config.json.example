@@ -1,10 +1,11 @@
 {
-	"HTTP":           ":8080",
-	"KeyPath":        "keys",
-	"RabbitURI":      "localhost:5672/",
-	"RabbitUser":     "guest",
-	"RabbitPassword": "guest",
-	"RabbitQueue":    "totem_input",
-	"RoutingKey":     "work.static.totem",
-	"Exchange":       "totem"
+	"HTTP":               ":8080",
+	"SourcesKeysPath":    "keys",
+	"TicketKeysPath":     "keys",
+	"SampleStorageURI":   "http://localhost:8016/samples/",
+	"RabbitURI":          "localhost:5672/",
+	"RabbitUser":         "guest",
+	"RabbitPassword":     "guest",
+	"RabbitDefault":      {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},
+	"Rabbit":             {"PEINFO" : {"Queue": "totem_input_peinfo", "Exchange": "totem_peinfo", "RoutingKey": "work.static.totem"}}
 }
