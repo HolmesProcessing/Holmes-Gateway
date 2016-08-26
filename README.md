@@ -31,7 +31,7 @@ The following configuration options are available:
 Start up the master-gateway by calling
 
 ```sh
-./Holmes-Gateway --master --config config-master.json
+./Holmes-Gateway --master --config config/gateway-master.conf
 ```
 
 
@@ -57,8 +57,22 @@ The following configuration options are available:
 Start up the gateway by calling
 
 ```sh
-./Holmes-Gateway --config config.json
+./Holmes-Gateway --config config/gateway.conf
 ```
+
+### Example: Routing Different Services To Different Queues:
+By modifying gateway's config-file, it is possible to push different services into different RabbitMq-queues / exchanges.
+This way, it is possible to route some services to Holmes-Totem-Dynamic.
+The keys **RabbitDefault** and **Rabbit** are used for this purpose. **Rabbit** consists of a dict mapping service-names to RabbitMq-Queues, Exchanges, and RoutingKeys. If the service is not found in this dict, the values from RabbitDefault are taken.
+e.g.
+```json
+"RabbitDefault": {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},
+"Rabbit":        {"CUCKOO":     {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
+                  "DRAKVUF":    {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
+                  "VIRUSTOTAL": {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"}}
+```
+This configuration will route services CUCKOO and DRAKVUF to the queue "totem_dynamic_input", while every other service is routed to "totem_input".
+
 
 ## Uploading Samples:
 In order to upload samples to storage, the user sends an https-encrypted request
