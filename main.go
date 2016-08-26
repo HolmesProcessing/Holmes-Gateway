@@ -16,7 +16,7 @@ func main() {
 
 	if confPath == "" {
 		confPath, _ = filepath.Abs(filepath.Dir(os.Args[0]))
-		confPath += "/config.json"
+		confPath += "/config/gateway.conf"
 	}
 	if master {
 		mastergateway.Start(confPath)
