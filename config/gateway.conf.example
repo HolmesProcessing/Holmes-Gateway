@@ -7,5 +7,7 @@
 	"RabbitUser":         "guest",
 	"RabbitPassword":     "guest",
 	"RabbitDefault":      {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},
-	"Rabbit":             {"PEINFO" : {"Queue": "totem_input_peinfo", "Exchange": "totem_peinfo", "RoutingKey": "work.static.totem"}}
+	"Rabbit":             {"CUCKOO":     {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
+                           "DRAKVUF":    {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
+                           "VIRUSTOTAL": {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"}}
 }
