@@ -1,9 +1,9 @@
 {
 	"HTTP":              ":8090",
-	"SourcesKeysPath":   "keys",
-	"TicketSignKeyPath": "keys/sign.priv",
-	"Organizations":     [{"Name": "Org1", "Uri": "http://localhost:8080/task/", "Sources": ["foo","bar"]},
-	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["blub"]}],
+	"SourcesKeysPath":   "config/keys/sources/",
+	"TicketSignKeyPath": "config/keys/tickets/org1.priv",
+	"Organizations":     [{"Name": "Org1", "Uri": "http://localhost:8080/task/", "Sources": ["src1","src2"]},
+	                      {"Name": "Org2", "Uri": "http://localhost:8081/task/", "Sources": ["src3"]}],
 	"OwnOrganization":   "Org1",
 	"AllowedUsers":      [{"name": "test", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":0},
 	                      {"name": "test2", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":1}],
