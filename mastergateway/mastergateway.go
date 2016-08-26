@@ -18,7 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"encoding/json"
 	"encoding/base64"
-	"../utils"
+	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 )
 
 type config struct {
