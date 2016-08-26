@@ -23,10 +23,21 @@ _testmain.go
 *.test
 *.prof
 
-keys/*.pub
-keys/*.priv
-*.pem
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+###
+# Holmes Processing Specific
+###
+
+# Configuration files
+*.conf
+
 # Executables
 Holmes-Gateway
 keys/keys
 
+# Encryption Keys
+keys/*.pub
+keys/*.priv
+*.pem
