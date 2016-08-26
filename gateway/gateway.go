@@ -11,7 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/streadway/amqp"
-	"../utils"
+	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 )
 
 type RabbitConf struct {
