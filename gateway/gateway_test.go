@@ -4,13 +4,15 @@ import (
 	"testing"
 	"encoding/base64"
 	"log"
+	"crypto/rsa"
+	"crypto/rand"
 	"encoding/json"
 	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 	)
 
 func TestRSA(t *testing.T) {
 	print("RSA-Test\n")
-	rsakey,_,err := loadPrivateKey("../keys/blub.priv")
+	rsakey, err := rsa.GenerateKey(rand.Reader,1024)
 	if err != nil {
 		t.Error(err)
 	}
@@ -29,7 +31,7 @@ func TestRSA(t *testing.T) {
 }
 
 func TestValidateTask(t *testing.T) {
-	ta := tasking.Task{
+	task := tasking.Task{
 		PrimaryURI : "http://127.0.0.1:8016/samples/3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5",
 		SecondaryURI : "",
 		Filename : "myfile",
@@ -37,15 +39,9 @@ func TestValidateTask(t *testing.T) {
 		Tags : []string{"test1"},
 		Attempts : 0 }
 
-	task, err := json.Marshal([]tasking.Task{ta})
+	err := checkTask(&task)
 	if err != nil {
 		t.Error(err)
-	}
-	v, err := validateTask(string(task))
-	if err != nil {
-		t.Error(err)
-	} else if ((v[0].PrimaryURI != ta.PrimaryURI) || (v[0].SecondaryURI != ta.SecondaryURI)) {
-		t.Error("Error: ", v)
 	}
 }
 
