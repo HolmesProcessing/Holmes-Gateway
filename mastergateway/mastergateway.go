@@ -112,12 +112,11 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	if err != nil {
 		return err, nil
 	}
-	tskerrors, _ := ioutil.ReadAll(resp.Body)
+	answer, _ := ioutil.ReadAll(resp.Body)
 	encryptedTicket.IV[0] ^= 1
-	log.Printf("Received: %+v\n", string(tskerrors))
-	tskerrorsDec, _ := tasking.AesDecrypt(tskerrors, symKey, encryptedTicket.IV)
-	log.Printf("Decrypted: %+v\n", string(tskerrorsDec))
-	return err, tskerrorsDec
+	answerDec, _ := tasking.AesDecrypt(answer, symKey, encryptedTicket.IV)
+	log.Printf("Decrypted: %+v\n", string(answerDec))
+	return err, answerDec
 }
 
 func authenticate(username string, password string) (*tasking.User, error) {
@@ -173,7 +172,7 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 	}
 
 	for org, tasklist := range tasklists {
-		err, tskOrgErrors := sendTaskList(tasklist, org)
+		err, answer := sendTaskList(tasklist, org)
 		if err != nil {
 			log.Println("Error while sending tasks: ", err)
 			for task := range tasklist {
@@ -183,8 +182,8 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 			}
 			continue
 		}
-		var tskOrgErrorsP []tasking.TaskError
-		err = json.Unmarshal(tskOrgErrors, &tskOrgErrorsP)
+		var answerP tasking.GatewayAnswer
+		err = json.Unmarshal(answer, &answerP)
 		if err != nil {
 			log.Printf("Error while parsing result")
 			for task := range tasklist {
@@ -194,11 +193,22 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 			}
 			continue
 
+		} else if answerP.Error != nil {
+			log.Printf("Error: ", answerP.Error)
+			for task := range tasklist {
+				tskerrors = append(tskerrors, tasking.TaskError{
+					TaskStruct : tasklist[task],
+					Error: *answerP.Error,
+				})
+			}
+			continue
 		}
-		// TODO: handle answer
-		tskerrors = append(tskerrors, tskOrgErrorsP...)
+		tskerrors = append(tskerrors, answerP.TskErrors...)
 	}
-	// collect tskerrors and return them
+
+	// TODO:
+	// go through list of tskerrors and reissue those with a recoverable error-code
+
 	return nil, tskerrors
 }
 
@@ -243,12 +253,12 @@ func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byt
 		return err, nil
 	}
 	// Issue HTTP-GET-Request
-	err, tskerrors := requestTaskList(uri, et, symKey)
+	err, answer := requestTaskList(uri, et, symKey)
 	if err != nil {
 		log.Println("Error requesting task: ", err)
-		return err, tskerrors
+		return err, answer
 	}
-	return err, tskerrors
+	return err, answer
 }
 
 func readKeys() {
@@ -274,7 +284,7 @@ func readKeys() {
 	var err error
 	ticketSignKey, ticketSignKeyName, err = tasking.LoadPrivateKey(conf.TicketSignKeyPath)
 	if err != nil {
-		log.Fatal("Error while reading key for signing (%s):%s", ticketSignKeyName, err)
+		log.Fatal("Error while reading key for signing (" + ticketSignKeyName +"):", err)
 	}
 }
 

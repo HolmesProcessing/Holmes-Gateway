@@ -62,10 +62,12 @@ type User struct {
 
 type ErrCode int
 const (
-	ERR_NONE ErrCode   = 1 + iota
-	ERR_KEY_UNKNOWN    = iota
-	ERR_ENCRYPTION     = iota
-	ERR_OTHER          = iota
+	ERR_NONE ErrCode        = 1 + iota
+	ERR_KEY_UNKNOWN         = iota
+	ERR_ENCRYPTION          = iota
+	ERR_TASK_INVALID        = iota
+	ERR_OTHER_UNRECOVERABLE = iota
+	ERR_OTHER_RECOVERABLE   = iota
 )
 
 type MyError struct {
@@ -76,6 +78,11 @@ type MyError struct {
 type TaskError struct {
 	TaskStruct  Task
 	Error       MyError
+}
+
+type GatewayAnswer struct {
+	Error *MyError
+	TskErrors []TaskError
 }
 
 func (me MyError) MarshalJSON() ([]byte, error) {

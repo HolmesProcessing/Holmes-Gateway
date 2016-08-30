@@ -112,7 +112,7 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 	var ticket tasking.Ticket
 	err := json.Unmarshal([]byte(ticketStr), &ticket)
 	if err != nil {
-		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER}, tskerrors
+		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
 
 	// Check ticket for validity
@@ -123,35 +123,35 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 	err = tasking.VerifyTicket(ticket, signKey)
 	if err != nil {
 		log.Println("Ticket invalid!")
-		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER}, tskerrors
+		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
 	log.Println("Signature OK!")
 	// Signature is OK
 
 	if time.Now().After(ticket.Expiration) {
-		return &tasking.MyError{Error: errors.New("Ticket expired"), Code: tasking.ERR_OTHER}, tskerrors
+		return &tasking.MyError{Error: errors.New("Ticket expired"), Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
 	// Check ACL
 	_, exists := conf.AllowedTasks[ticket.SignerKeyId]
 	if !exists {
 		log.Printf("Organization '%s' not allowed", ticket.SignerKeyId)
-		return &tasking.MyError{Error: errors.New("Organization '" + ticket.SignerKeyId + "' not allowed"), Code: tasking.ERR_OTHER}, tskerrors
+		return &tasking.MyError{Error: errors.New("Organization '" + ticket.SignerKeyId + "' not allowed"), Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
 
 	// Check for required fields; Check whether strings are in printable ascii-range
 	for i := 0; i < len(ticket.Tasks); i++ {
 		task := ticket.Tasks[i]
 		e := checkTask(&task)
-		task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
-		if task.SecondaryURI != "" {
-			task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
-		}
 		if e != nil {
-			e2 := tasking.MyError{Error: e, Code:42}
+			e2 := tasking.MyError{Error: e, Code: tasking.ERR_TASK_INVALID}
 			tskerrors = append(tskerrors, tasking.TaskError{
 				TaskStruct : task,
 				Error : e2})
 		} else {
+			task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
+			if task.SecondaryURI != "" {
+				task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
+			}
 			pushToTransport(task)
 		}
 	}
@@ -162,15 +162,15 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 func decodeTask(r *http.Request) (*tasking.Encrypted, *tasking.MyError) {
 	ek, err := base64.StdEncoding.DecodeString(r.FormValue("EncryptedKey"))
 	if err != nil {
-		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER}
+		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
 	}
 	iv, err := base64.StdEncoding.DecodeString(r.FormValue("IV"))
 	if err != nil {
-		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER}
+		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
 	}
 	en, err := base64.StdEncoding.DecodeString(r.FormValue("Encrypted"))
 	if err != nil {
-		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER}
+		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
 	}
 
 	task := tasking.Encrypted{
@@ -240,18 +240,18 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err, tskerrors, symKey := handleIncoming(task)
+	answer := tasking.GatewayAnswer{
+		Error: err,
+		TskErrors: tskerrors,
+	}
 	// encrypt answer
 	task.IV[0] ^= 1 // Do not reuse the same IV -> modify one bit
-	if err != nil {
-		x, _ := json.Marshal(err)
-		enc, _ := tasking.AesEncrypt(x, symKey, task.IV)
-		w.Write(enc)
-	} else {
-		log.Printf("Collected errors: %+v", tskerrors)
-		x, _ := json.Marshal(tskerrors)
-		enc, _ := tasking.AesEncrypt(x, symKey, task.IV)
-		w.Write(enc)
-	}
+	x, _ := json.Marshal(answer)
+	log.Println("Returning: ", string(x))
+
+	enc, _ := tasking.AesEncrypt(x, symKey, task.IV)
+	// TODO: Handle case that symKey could not be extracted
+	w.Write(enc)
 }
 
 func readKeys() {
