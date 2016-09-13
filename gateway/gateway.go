@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 	"errors"
+	"strings"
 	"net/http"
 	"crypto/rsa"
 	"encoding/base64"
@@ -39,6 +40,7 @@ var keys map[string]*rsa.PrivateKey
 var ticketKeys map[string]*rsa.PublicKey
 var keysMutex = &sync.Mutex{}
 var rabbitChannel *amqp.Channel
+var allowedTasks map[string](map[string]struct{}) // map Organization-Name -> map task
 
 func decryptTicket(enc *tasking.Encrypted) (string, *tasking.MyError, []byte) {
 	// Fetch private key corresponding to enc.keyFingerprint
@@ -131,8 +133,9 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 	if time.Now().After(ticket.Expiration) {
 		return &tasking.MyError{Error: errors.New("Ticket expired"), Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
+
 	// Check ACL
-	_, exists := conf.AllowedTasks[ticket.SignerKeyId]
+	allowedForOrg, exists := allowedTasks[ticket.SignerKeyId]
 	if !exists {
 		log.Printf("Organization '%s' not allowed", ticket.SignerKeyId)
 		return &tasking.MyError{Error: errors.New("Organization '" + ticket.SignerKeyId + "' not allowed"), Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
@@ -148,11 +151,41 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 				TaskStruct : task,
 				Error : e2})
 		} else {
+			// Check whether the corresponding tasks are allowed in ACL:
+			acceptedTasks := make(map[string][]string)
+			rejectedTasks := make(map[string][]string)
+
+			_, allAllowed := allowedForOrg["*"]
+			if allAllowed {
+				acceptedTasks = task.Tasks
+			} else {
+				for tsk, arg := range task.Tasks {
+					tsk = strings.ToLower(tsk)
+					_, tAllowed := allowedForOrg[tsk]
+					if tAllowed {
+						acceptedTasks[tsk] = arg
+					} else {
+						rejectedTasks[tsk] = arg
+					}
+
+				}
+			}
+			log.Printf("Allowed: %+v\n", acceptedTasks)
+			log.Printf("Rejected: %+v\n", rejectedTasks)
+
 			task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
 			if task.SecondaryURI != "" {
 				task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
 			}
+			task.Tasks = acceptedTasks
 			pushToTransport(task)
+			if len(rejectedTasks) != 0 {
+				task.Tasks = rejectedTasks
+				e2 := tasking.MyError{Error: errors.New("Rejected"), Code: tasking.ERR_NOT_ALLOWED}
+				tskerrors = append(tskerrors, tasking.TaskError{
+					TaskStruct : task,
+					Error : e2 })
+			}
 		}
 	}
 
@@ -364,7 +397,20 @@ func Start(confPath string) {
 	keys = make(map[string]*rsa.PrivateKey)
 	ticketKeys = make(map[string]*rsa.PublicKey)
 	readKeys()
-	//log.Println(keys)
+
+	// Make sure, allowed tasks are in lower case, as they are compared
+	// case insensitive. Also bring them into a map, since this is more
+	// efficient in our case
+	allowedTasks = make(map[string](map[string]struct{}))
+	for org, tasks := range conf.AllowedTasks {
+		allowed := make(map[string]struct{})
+		for _, t := range tasks {
+			// struct{}{} is just an empty placeholder.
+			// we are only interested in whether the key exists in the map
+			allowed[strings.ToLower(t)] = struct{}{}
+		}
+		allowedTasks[org] = allowed
+	}
 
 	// Connect to rabbitmq
 	connectRabbit()

@@ -66,6 +66,7 @@ const (
 	ERR_KEY_UNKNOWN         = iota
 	ERR_ENCRYPTION          = iota
 	ERR_TASK_INVALID        = iota
+	ERR_NOT_ALLOWED         = iota
 	ERR_OTHER_UNRECOVERABLE = iota
 	ERR_OTHER_RECOVERABLE   = iota
 )
