@@ -172,7 +172,8 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 			}
 			log.Printf("Allowed: %+v\n", acceptedTasks)
 			log.Printf("Rejected: %+v\n", rejectedTasks)
-
+			savedPrimaryURI := task.PrimaryURI
+			savedSecondaryURI := task.SecondaryURI
 			task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
 			if task.SecondaryURI != "" {
 				task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
@@ -180,6 +181,8 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 			task.Tasks = acceptedTasks
 			pushToTransport(task)
 			if len(rejectedTasks) != 0 {
+				task.PrimaryURI = savedPrimaryURI
+				task.SecondaryURI = savedSecondaryURI
 				task.Tasks = rejectedTasks
 				e2 := tasking.MyError{Error: errors.New("Rejected"), Code: tasking.ERR_NOT_ALLOWED}
 				tskerrors = append(tskerrors, tasking.TaskError{
