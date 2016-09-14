@@ -48,6 +48,7 @@ The following configuration options are available:
 * **SourcesKeysPath**: The path to where the private keys of the sources are found. The keys must be in PEM-format and must have the file-extension \*.priv
 * **TicketKeysPath**: The public keys for tickets that should be acceptable
 * **SampleStorageURI**: The URI where the samples reside. This URI is prepended to the PrimaryURI- and SecondaryURI-fields for incoming tasks
+* **AllowedTasks**: A dict indicating, which organization is allowed to request which task. To allow all tasks of an organization use the wildcard '\*'.
 * **RabbitURI**: The URI to rabbit
 * **RabbitUser**: The rabbit username
 * **RabbitPassword**: The rabbit password
@@ -112,12 +113,12 @@ The following demonstrates an exemplary evocation using CURL.
 The *--insecure* parameter is used, to disable certificate checking.
 
 ```sh
-curl --data 'username=test&password=test&task=[{"primaryURI":"3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[""],"YARA":[""]},"tags":["test1"],"attempts":0,"source":"foo","download":true}]' --insecure https://localhost:8090/task/
+curl --data 'username=test&password=test&task=[{"primaryURI":"3a12f43eeb0c45d241a8f447d4661d9746d6ea35990953334f5ec675f60e36c5","secondaryURI":"","filename":"myfile","tasks":{"PEINFO":[],"YARA":[]},"tags":["test1"],"attempts":0,"source":"src1","download":true}]' --insecure https://localhost:8090/task/
 ```
 
 Alternatively, it is possible to use Holmes-Toolbox for this task, as well. First a file must be prepared containing a line with the sha256-sum, the filename, and the source (separated by single spaces) for each sample.
 ```sh
-./Holmes-Toolbox --gateway https://127.0.0.1:8090 --tasking --file sampleFile --user test --pw test --tasks '{"PEINFO":[""], "YARA":[""]}' --tags '["mytag"]' --comment 'mycomment' --insecure
+./Holmes-Toolbox --gateway https://127.0.0.1:8090 --tasking --file sampleFile --user test --pw test --tasks '{"PEINFO":[], "YARA":[]}' --tags '["mytag"]' --comment 'mycomment' --insecure
 ```
 
 If no error occured, nothing or an empty list will be returned. Otherwise a list containing the
