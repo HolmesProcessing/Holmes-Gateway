@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 	"errors"
+	"strings"
 	"net/http"
 	"crypto/rsa"
 	"encoding/base64"
@@ -25,6 +26,7 @@ type config struct {
 	SourcesKeysPath    string
 	TicketKeysPath     string
 	SampleStorageURI   string
+	AllowedTasks       map[string][]string
 	RabbitURI          string
 	RabbitUser         string
 	RabbitPassword     string
@@ -38,26 +40,30 @@ var keys map[string]*rsa.PrivateKey
 var ticketKeys map[string]*rsa.PublicKey
 var keysMutex = &sync.Mutex{}
 var rabbitChannel *amqp.Channel
+var allowedTasks map[string](map[string]struct{}) // map Organization-Name -> map task
 
-func decryptTicket(enc *tasking.Encrypted) (string, error, []byte) {
+func decryptTicket(enc *tasking.Encrypted) (string, *tasking.MyError, []byte) {
 	// Fetch private key corresponding to enc.keyFingerprint
 	keysMutex.Lock()
 	asymKey, exists := keys[enc.KeyFingerprint]
 	keysMutex.Unlock()
 	if !exists {
-		return "", errors.New("Private key " + enc.KeyFingerprint + " not found"), nil
+		return "", &tasking.MyError{Error: errors.New("Private key " + enc.KeyFingerprint + " not found"), Code: tasking.ERR_KEY_UNKNOWN}, nil
 	}
 	
 	// Decrypt symmetric key using the asymmetric key
 	symKey, err := tasking.RsaDecrypt(enc.EncryptedKey, asymKey)
-	if err != nil{
-		return "", err, nil
+	if err != nil {
+		return "", &tasking.MyError{Error: err, Code: tasking.ERR_ENCRYPTION}, nil
 	}
 	//log.Printf("Symmetric Key: %s\n", symKey)
 
 	// Decrypt using the symmetric key
 	decrypted, err := tasking.AesDecrypt(enc.Encrypted, symKey, enc.IV)
-	return string(decrypted), err, symKey
+	if err != nil {
+		return string(decrypted), &tasking.MyError{Error: err, Code: tasking.ERR_ENCRYPTION}, symKey
+	}
+	return string(decrypted), nil, symKey
 }
 
 func stringPrintable(s string) (bool) {
@@ -103,65 +109,104 @@ func checkTask(task *tasking.Task) (error){
 	return nil
 }
 
-func handleDecrypted(ticketStr string) (error, []tasking.TaskError) {
+func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 	tskerrors := make([]tasking.TaskError,0)
 	var ticket tasking.Ticket
 	err := json.Unmarshal([]byte(ticketStr), &ticket)
 	if err != nil {
-		return err, tskerrors
+		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
 
 	// Check ticket for validity
 	signKey, found := ticketKeys[ticket.SignerKeyId]
 	if !found {
-		return errors.New("Couldn't verify signature: Key unknown"), tskerrors
+		return &tasking.MyError{Error: errors.New("Couldn't verify signature: Key unknown"), Code: tasking.ERR_KEY_UNKNOWN}, tskerrors
 	}
 	err = tasking.VerifyTicket(ticket, signKey)
 	if err != nil {
 		log.Println("Ticket invalid!")
-		return err, tskerrors
+		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
 	log.Println("Signature OK!")
 	// Signature is OK
 
 	if time.Now().After(ticket.Expiration) {
-		return errors.New("Ticket expired"), tskerrors
+		return &tasking.MyError{Error: errors.New("Ticket expired"), Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
 	}
-	//TODO: Check ACL
+
+	// Check ACL
+	allowedForOrg, exists := allowedTasks[ticket.SignerKeyId]
+	if !exists {
+		log.Printf("Organization '%s' not allowed", ticket.SignerKeyId)
+		return &tasking.MyError{Error: errors.New("Organization '" + ticket.SignerKeyId + "' not allowed"), Code: tasking.ERR_OTHER_RECOVERABLE}, tskerrors
+	}
 
 	// Check for required fields; Check whether strings are in printable ascii-range
 	for i := 0; i < len(ticket.Tasks); i++ {
 		task := ticket.Tasks[i]
 		e := checkTask(&task)
-		task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
-		if task.SecondaryURI != "" {
-			task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
-		}
 		if e != nil {
-			e2 := tasking.MyError{Error: e}
+			e2 := tasking.MyError{Error: e, Code: tasking.ERR_TASK_INVALID}
 			tskerrors = append(tskerrors, tasking.TaskError{
 				TaskStruct : task,
 				Error : e2})
 		} else {
+			// Check whether the corresponding tasks are allowed in ACL:
+			acceptedTasks := make(map[string][]string)
+			rejectedTasks := make(map[string][]string)
+
+			_, allAllowed := allowedForOrg["*"]
+			if allAllowed {
+				acceptedTasks = task.Tasks
+			} else {
+				for tsk, arg := range task.Tasks {
+					tsk = strings.ToLower(tsk)
+					_, tAllowed := allowedForOrg[tsk]
+					if tAllowed {
+						acceptedTasks[tsk] = arg
+					} else {
+						rejectedTasks[tsk] = arg
+					}
+
+				}
+			}
+			log.Printf("Allowed: %+v\n", acceptedTasks)
+			log.Printf("Rejected: %+v\n", rejectedTasks)
+			savedPrimaryURI := task.PrimaryURI
+			savedSecondaryURI := task.SecondaryURI
+			task.PrimaryURI = conf.SampleStorageURI + task.PrimaryURI
+			if task.SecondaryURI != "" {
+				task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
+			}
+			task.Tasks = acceptedTasks
 			pushToTransport(task)
+			if len(rejectedTasks) != 0 {
+				task.PrimaryURI = savedPrimaryURI
+				task.SecondaryURI = savedSecondaryURI
+				task.Tasks = rejectedTasks
+				e2 := tasking.MyError{Error: errors.New("Rejected"), Code: tasking.ERR_NOT_ALLOWED}
+				tskerrors = append(tskerrors, tasking.TaskError{
+					TaskStruct : task,
+					Error : e2 })
+			}
 		}
 	}
 
-	return err, tskerrors
+	return nil, tskerrors
 }
 
-func decodeTask(r *http.Request) (*tasking.Encrypted, error) {
+func decodeTask(r *http.Request) (*tasking.Encrypted, *tasking.MyError) {
 	ek, err := base64.StdEncoding.DecodeString(r.FormValue("EncryptedKey"))
 	if err != nil {
-		return nil, err
+		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
 	}
 	iv, err := base64.StdEncoding.DecodeString(r.FormValue("IV"))
 	if err != nil {
-		return nil, err
+		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
 	}
 	en, err := base64.StdEncoding.DecodeString(r.FormValue("Encrypted"))
 	if err != nil {
-		return nil, err
+		return nil, &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
 	}
 
 	task := tasking.Encrypted{
@@ -170,7 +215,7 @@ func decodeTask(r *http.Request) (*tasking.Encrypted, error) {
 		Encrypted      : en,
 		IV             : iv	}
 	log.Printf("New task request:\n%+v\n", task);
-	return &task, err
+	return &task, nil
 }
 
 func pushToTransport(task tasking.Task) {
@@ -205,7 +250,7 @@ func pushToTransport(task tasking.Task) {
 	}
 }
 
-func handleIncoming(task *tasking.Encrypted) (error, []tasking.TaskError, []byte){
+func handleIncoming(task *tasking.Encrypted) (*tasking.MyError, []tasking.TaskError, []byte){
 	decTicket, err, symKey := decryptTicket(task)
 	if err != nil {
 		log.Println("Error while decrypting: ", err)
@@ -225,22 +270,24 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 	task, err := decodeTask(r)
 	if err != nil {
 		log.Println("Error while decoding: ", err)
-		w.Write([]byte(err.Error()))
+		x, _ := json.Marshal(err)
+		w.Write(x)
 		return
 	}
 
 	err, tskerrors, symKey := handleIncoming(task)
+	answer := tasking.GatewayAnswer{
+		Error: err,
+		TskErrors: tskerrors,
+	}
 	// encrypt answer
 	task.IV[0] ^= 1 // Do not reuse the same IV -> modify one bit
-	if err != nil {
-		enc, _ := tasking.AesEncrypt([]byte(err.Error()), symKey, task.IV)
-		w.Write(enc)
-	} else {
-		log.Printf("Collected errors: %+v", tskerrors)
-		x, _ := json.Marshal(tskerrors)
-		enc, _ := tasking.AesEncrypt(x, symKey, task.IV)
-		w.Write(enc)
-	}
+	x, _ := json.Marshal(answer)
+	log.Println("Returning: ", string(x))
+
+	enc, _ := tasking.AesEncrypt(x, symKey, task.IV)
+	// TODO: Handle case that symKey could not be extracted
+	w.Write(enc)
 }
 
 func readKeys() {
@@ -353,7 +400,20 @@ func Start(confPath string) {
 	keys = make(map[string]*rsa.PrivateKey)
 	ticketKeys = make(map[string]*rsa.PublicKey)
 	readKeys()
-	//log.Println(keys)
+
+	// Make sure, allowed tasks are in lower case, as they are compared
+	// case insensitive. Also bring them into a map, since this is more
+	// efficient in our case
+	allowedTasks = make(map[string](map[string]struct{}))
+	for org, tasks := range conf.AllowedTasks {
+		allowed := make(map[string]struct{})
+		for _, t := range tasks {
+			// struct{}{} is just an empty placeholder.
+			// we are only interested in whether the key exists in the map
+			allowed[strings.ToLower(t)] = struct{}{}
+		}
+		allowedTasks[org] = allowed
+	}
 
 	// Connect to rabbitmq
 	connectRabbit()

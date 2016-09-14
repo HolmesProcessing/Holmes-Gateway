@@ -40,7 +40,7 @@ var (
 	keysMutex = &sync.Mutex{}                  // Mutex for the map, since keys could change during runtime
 	ticketSignKey *rsa.PrivateKey              // The private key used for signing tickets
 	ticketSignKeyName string                   // The id of the private key used for signing tickets
-	srcRouter map[string]*tasking.Organization // Which source should be routed to which organization
+	srcRouter map[string][]*tasking.Organization // Which source should be routed to which organization
 	ownOrganization *tasking.Organization      // Pointer to the own organization in the list of organizations
 	storageURI url.URL                         // The URL to storage for redirecting object-storage requests
 	proxy *httputil.ReverseProxy               // The proxy object for redirecting object-storage requests
@@ -67,7 +67,6 @@ func encryptKey(symKey []byte, asymKeyId string) ([]byte, error) {
 	asymKey, exists := keys[asymKeyId]
 	keysMutex.Unlock()
 	log.Println("searching for key: " + asymKeyId)
-	log.Printf("%+v\n", keys)
 	if !exists {
 		return nil, errors.New("Public Key not found")
 	}
@@ -112,12 +111,11 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 	if err != nil {
 		return err, nil
 	}
-	tskerrors, _ := ioutil.ReadAll(resp.Body)
+	answer, _ := ioutil.ReadAll(resp.Body)
 	encryptedTicket.IV[0] ^= 1
-	log.Printf("Received: %+v\n", string(tskerrors))
-	tskerrorsDec, _ := tasking.AesDecrypt(tskerrors, symKey, encryptedTicket.IV)
-	log.Printf("Decrypted: %+v\n", string(tskerrorsDec))
-	return err, tskerrorsDec
+	answerDec, _ := tasking.AesDecrypt(answer, symKey, encryptedTicket.IV)
+	log.Printf("Decrypted: %+v\n", string(answerDec))
+	return err, answerDec
 }
 
 func authenticate(username string, password string) (*tasking.User, error) {
@@ -151,55 +149,94 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 		return err, tskerrors
 	}
 
-	// Sort the tasks for their destination organizations, based on the
-	// source of the task and the srcRouter-configuration
-	tasklists := make(map[*tasking.Organization][]tasking.Task)
-	for _,task := range tasks {
-		org, found := srcRouter[task.Source]
-		if !found {
-			log.Printf("No route for source %s!\n", task.Source)
-			tskerrors = append(tskerrors, tasking.TaskError{
-				TaskStruct : task,
-				Error : tasking.MyError{Error: errors.New("No route for source!")}})
-			continue
+	// Submit all the tasks, until either all of them are either accepted
+	// or unrecoverable rejected
+	unrecoverableErrors := make([]tasking.TaskError, 0, len(tasks))
+	iteration := 0
+	for len(tasks) > 0 {
+		tskerrors = tskerrors[0:0]
+		log.Printf("\x1b[0;32mSending tasks try #%d\x1b[0m\n", iteration)
+		
+		// Sort the tasks for their destination organizations, based on the
+		// source of the task and the srcRouter-configuration
+		tasklists := make(map[*tasking.Organization][]tasking.Task)
+		for _,task := range tasks {
+			orgs, found := srcRouter[task.Source]
+			if !found {
+				log.Printf("No route for source %s!\n", task.Source)
+				unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
+					TaskStruct : task,
+					Error : tasking.MyError{Error: errors.New("No route for source!")}})
+				continue
+			}
+			if len(orgs) <= iteration {
+				unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
+					TaskStruct : task,
+					Error : tasking.MyError{Error: errors.New("Task rejected by all organizations!")}})
+				continue
+			}
+			org := orgs[iteration]
+			tasklist, found := tasklists[org]
+			// TODO: Is this efficient?
+			if !found {
+				tasklists[org] = []tasking.Task{task}
+			} else {
+				tasklists[org] = append(tasklist, task)
+			}
 		}
-		tasklist, found := tasklists[org]
-		// TODO: Is this efficient?
-		if !found {
-			tasklists[org] = []tasking.Task{task}
-		} else {
-			tasklists[org] = append(tasklist, task)
+		// Send the tasks and handle the answers
+		for org, tasklist := range tasklists {
+			err, answerString := sendTaskList(tasklist, org)
+			if err != nil {
+				log.Println("Error while sending tasks: ", err)
+				for task := range tasklist {
+					tskerrors = append(tskerrors, tasking.TaskError{
+						TaskStruct : tasklist[task],
+						Error: tasking.MyError{Error: errors.New("Error while sending task! " + err.Error())}})
+				}
+				continue
+			}
+			var answer tasking.GatewayAnswer
+			err = json.Unmarshal(answerString, &answer)
+			if err != nil {
+				log.Printf("Error while parsing result")
+				for task := range tasklist {
+					tskerrors = append(tskerrors, tasking.TaskError{
+						TaskStruct : tasklist[task],
+						Error: tasking.MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
+				}
+				continue
+
+			} else if answer.Error != nil {
+				log.Printf("Error: ", answer.Error)
+				for task := range tasklist {
+					tskerrors = append(tskerrors, tasking.TaskError{
+						TaskStruct : tasklist[task],
+						Error: *answer.Error,
+					})
+				}
+				continue
+			}
+			tskerrors = append(tskerrors, answer.TskErrors...)
+		}
+		// go through list of tskerrors and reissue those with a recoverable error-code
+		log.Printf("\x1b[0;33mreceived errors: %+v\x1b[0m", tskerrors)
+		iteration += 1
+		tasks = make([]tasking.Task, 0, len(tskerrors))
+		for _, e := range tskerrors {
+			switch e.Error.Code {
+			case tasking.ERR_OTHER_UNRECOVERABLE, tasking.ERR_TASK_INVALID:
+				// These tasks are not recoverable and won't be reissued
+				unrecoverableErrors = append(unrecoverableErrors, e)
+				break
+			default:
+				tasks = append(tasks, e.TaskStruct)
+			}
 		}
 	}
+	log.Printf("\x1b[0;31mUnrecoverable Errors: %+v\x1b[0m", unrecoverableErrors)
 
-	for org, tasklist := range tasklists {
-		err, tskOrgErrors := sendTaskList(tasklist, org)
-		if err != nil {
-			log.Println("Error while sending tasks: ", err)
-			for task := range tasklist {
-				tskerrors = append(tskerrors, tasking.TaskError{
-					TaskStruct : tasklist[task],
-					Error: tasking.MyError{Error: errors.New("Error while sending task! " + err.Error())}})
-			}
-			continue
-		}
-		var tskOrgErrorsP []tasking.TaskError
-		err = json.Unmarshal(tskOrgErrors, &tskOrgErrorsP)
-		if err != nil {
-			log.Printf("Error while parsing result")
-			for task := range tasklist {
-				tskerrors = append(tskerrors, tasking.TaskError{
-					TaskStruct : tasklist[task],
-					Error: tasking.MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
-			}
-			continue
-
-		}
-		// TODO: handle answer
-		tskerrors = append(tskerrors, tskOrgErrorsP...)
-	}
-	// collect tskerrors and return them
-	return nil, tskerrors
+	return nil, unrecoverableErrors
 }
 
 func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byte){
@@ -243,12 +280,12 @@ func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byt
 		return err, nil
 	}
 	// Issue HTTP-GET-Request
-	err, tskerrors := requestTaskList(uri, et, symKey)
+	err, answer := requestTaskList(uri, et, symKey)
 	if err != nil {
 		log.Println("Error requesting task: ", err)
-		return err, tskerrors
+		return err, answer
 	}
-	return err, tskerrors
+	return err, answer
 }
 
 func readKeys() {
@@ -274,7 +311,7 @@ func readKeys() {
 	var err error
 	ticketSignKey, ticketSignKeyName, err = tasking.LoadPrivateKey(conf.TicketSignKeyPath)
 	if err != nil {
-		log.Fatal("Error while reading key for signing (%s):%s", ticketSignKeyName, err)
+		log.Fatal("Error while reading key for signing (" + ticketSignKeyName +"):", err)
 	}
 }
 
@@ -418,12 +455,18 @@ func initHTTP() {
 func initSourceRouting() {
 	//TODO: make this dynamically configurable
 	ownOrganization = nil
-	srcRouter = make(map[string]*tasking.Organization)
+	srcRouter = make(map[string][]*tasking.Organization)
+
 	log.Println("=====")
 	for num, org := range(conf.Organizations) {
 		log.Println(org)
 		for _, src := range(org.Sources) {
-			srcRouter[src] = &conf.Organizations[num]
+			routes, exists := srcRouter[src]
+			if !exists {
+				srcRouter[src] = []*tasking.Organization{&conf.Organizations[num]}
+			} else {
+				srcRouter[src] = append(routes, &conf.Organizations[num])
+			}
 		}
 		if org.Name == conf.OwnOrganization {
 			ownOrganization = &conf.Organizations[num]
