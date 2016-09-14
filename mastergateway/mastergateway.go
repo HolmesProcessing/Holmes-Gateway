@@ -1,58 +1,59 @@
 package mastergateway
 
 import (
-	"os"
+	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"github.com/HolmesProcessing/Holmes-Gateway/utils"
+	"golang.org/x/crypto/bcrypt"
 	"io"
+	"io/ioutil"
 	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"strconv"
 	"sync"
 	"time"
-	"bytes"
-	"errors"
-	"strconv"
-	"io/ioutil"
-	"net/http"
-	"net/url"
-	"net/http/httputil"
-	"crypto/rsa"
-	"crypto/rand"
-	"golang.org/x/crypto/bcrypt"
-	"encoding/json"
-	"encoding/base64"
-	"github.com/HolmesProcessing/Holmes-Gateway/utils"
 )
 
 type config struct {
-	HTTP                string // The HTTP-binding for listening (IP+Port)
-	SourcesKeysPath     string // Path to the public keys of the sources
-	TicketSignKeyPath   string // Path to the private key used for signing tickets
-	Organizations       []tasking.Organization // All the known organizations
-	OwnOrganization     string // The name of the own organization (Should also be present in the list "Organizations")
-	StorageURI          string // URI of HolmesStorage
-	AutoTasks           map[string][]string // Tasks that should be automatically executed on new objects
-	CertificatePath     string
-	CertificateKeyPath  string
-	AllowedUsers        []tasking.User
+	HTTP               string                 // The HTTP-binding for listening (IP+Port)
+	SourcesKeysPath    string                 // Path to the public keys of the sources
+	TicketSignKeyPath  string                 // Path to the private key used for signing tickets
+	Organizations      []tasking.Organization // All the known organizations
+	OwnOrganization    string                 // The name of the own organization (Should also be present in the list "Organizations")
+	StorageURI         string                 // URI of HolmesStorage
+	AutoTasks          map[string][]string    // Tasks that should be automatically executed on new objects
+	CertificatePath    string
+	CertificateKeyPath string
+	AllowedUsers       []tasking.User
 }
 
 var (
-	conf *config                               // The configuration struct
-	keys map[string]*rsa.PublicKey             // The public keys of the sources
-	keysMutex = &sync.Mutex{}                  // Mutex for the map, since keys could change during runtime
-	ticketSignKey *rsa.PrivateKey              // The private key used for signing tickets
-	ticketSignKeyName string                   // The id of the private key used for signing tickets
-	srcRouter map[string][]*tasking.Organization // Which source should be routed to which organization
-	ownOrganization *tasking.Organization      // Pointer to the own organization in the list of organizations
-	storageURI url.URL                         // The URL to storage for redirecting object-storage requests
-	proxy *httputil.ReverseProxy               // The proxy object for redirecting object-storage requests
-	users map[string]*tasking.User             // Map: Username -> User-struct (TODO: Move to storage)
+	conf              *config                            // The configuration struct
+	keys              map[string]*rsa.PublicKey          // The public keys of the sources
+	keysMutex         = &sync.Mutex{}                    // Mutex for the map, since keys could change during runtime
+	ticketSignKey     *rsa.PrivateKey                    // The private key used for signing tickets
+	ticketSignKeyName string                             // The id of the private key used for signing tickets
+	srcRouter         map[string][]*tasking.Organization // Which source should be routed to which organization
+	ownOrganization   *tasking.Organization              // Pointer to the own organization in the list of organizations
+	storageURI        url.URL                            // The URL to storage for redirecting object-storage requests
+	proxy             *httputil.ReverseProxy             // The proxy object for redirecting object-storage requests
+	users             map[string]*tasking.User           // Map: Username -> User-struct (TODO: Move to storage)
 )
 
-func createTicket(tasks []tasking.Task) (tasking.Ticket, error){
-	t := tasking.Ticket {
-		Expiration : time.Now().Add(3*time.Hour), //TODO: 3 Hours validity reasonable?
-		Tasks : tasks,
-		SignerKeyId : ticketSignKeyName,
-		Signature : nil }
+func createTicket(tasks []tasking.Task) (tasking.Ticket, error) {
+	t := tasking.Ticket{
+		Expiration:  time.Now().Add(3 * time.Hour), //TODO: 3 Hours validity reasonable?
+		Tasks:       tasks,
+		SignerKeyId: ticketSignKeyName,
+		Signature:   nil}
 	msg, err := json.Marshal(t)
 	if err != nil {
 		return t, err
@@ -86,11 +87,11 @@ func encryptTicket(ticket []byte, asymKeyId string, symKey []byte, iv []byte) (*
 	if err != nil {
 		return nil, err
 	}
-	encryptedTicket := tasking.Encrypted {
-		KeyFingerprint : asymKeyId,
-		EncryptedKey : encKey,
-		Encrypted : encrypted,
-		IV : iv	}
+	encryptedTicket := tasking.Encrypted{
+		KeyFingerprint: asymKeyId,
+		EncryptedKey:   encKey,
+		Encrypted:      encrypted,
+		IV:             iv}
 	return &encryptedTicket, err
 }
 
@@ -119,7 +120,7 @@ func requestTaskList(uri string, encryptedTicket *tasking.Encrypted, symKey []by
 }
 
 func authenticate(username string, password string) (*tasking.User, error) {
-// TODO: Ask storage instead of configuration file for credentials
+	// TODO: Ask storage instead of configuration file for credentials
 	user, exists := users[username]
 	if !exists {
 		// TODO: Maybe compare some dummy value to prevent timing based attack
@@ -138,7 +139,7 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 	tskerrors := make([]tasking.TaskError, 0)
 	// TODO: Maybe we want to store the UID in the task
 	_, err := authenticate(username, password)
-	if err != nil{
+	if err != nil {
 		return err, nil
 	}
 	var tasks []tasking.Task
@@ -156,23 +157,23 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 	for len(tasks) > 0 {
 		tskerrors = tskerrors[0:0]
 		log.Printf("\x1b[0;32mSending tasks try #%d\x1b[0m\n", iteration)
-		
+
 		// Sort the tasks for their destination organizations, based on the
 		// source of the task and the srcRouter-configuration
 		tasklists := make(map[*tasking.Organization][]tasking.Task)
-		for _,task := range tasks {
+		for _, task := range tasks {
 			orgs, found := srcRouter[task.Source]
 			if !found {
 				log.Printf("No route for source %s!\n", task.Source)
 				unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
-					TaskStruct : task,
-					Error : tasking.MyError{Error: errors.New("No route for source!")}})
+					TaskStruct: task,
+					Error:      tasking.MyError{Error: errors.New("No route for source!")}})
 				continue
 			}
 			if len(orgs) <= iteration {
 				unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
-					TaskStruct : task,
-					Error : tasking.MyError{Error: errors.New("Task rejected by all organizations!")}})
+					TaskStruct: task,
+					Error:      tasking.MyError{Error: errors.New("Task rejected by all organizations!")}})
 				continue
 			}
 			org := orgs[iteration]
@@ -191,8 +192,8 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 				log.Println("Error while sending tasks: ", err)
 				for task := range tasklist {
 					tskerrors = append(tskerrors, tasking.TaskError{
-						TaskStruct : tasklist[task],
-						Error: tasking.MyError{Error: errors.New("Error while sending task! " + err.Error())}})
+						TaskStruct: tasklist[task],
+						Error:      tasking.MyError{Error: errors.New("Error while sending task! " + err.Error())}})
 				}
 				continue
 			}
@@ -202,8 +203,8 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 				log.Printf("Error while parsing result")
 				for task := range tasklist {
 					tskerrors = append(tskerrors, tasking.TaskError{
-						TaskStruct : tasklist[task],
-						Error: tasking.MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
+						TaskStruct: tasklist[task],
+						Error:      tasking.MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
 				}
 				continue
 
@@ -211,8 +212,8 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 				log.Printf("Error: ", answer.Error)
 				for task := range tasklist {
 					tskerrors = append(tskerrors, tasking.TaskError{
-						TaskStruct : tasklist[task],
-						Error: *answer.Error,
+						TaskStruct: tasklist[task],
+						Error:      *answer.Error,
 					})
 				}
 				continue
@@ -239,7 +240,7 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 	return nil, unrecoverableErrors
 }
 
-func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byte){
+func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byte) {
 	uri := org.Uri
 
 	// Retrieve the corresponding public key
@@ -290,13 +291,13 @@ func sendTaskList(tasks []tasking.Task, org *tasking.Organization) (error, []byt
 
 func readKeys() {
 	tasking.LoadKeysAndWatch(conf.SourcesKeysPath, ".pub",
-		func(name string){
+		func(name string) {
 			keysMutex.Lock()
 			delete(keys, name)
 			keysMutex.Unlock()
 			log.Println(keys)
 		},
-		func(name string){
+		func(name string) {
 			key, name, err := tasking.LoadPublicKey(name)
 			if err != nil {
 				log.Printf("Error reading key (%s):%s\n", name, err)
@@ -311,7 +312,7 @@ func readKeys() {
 	var err error
 	ticketSignKey, ticketSignKeyName, err = tasking.LoadPrivateKey(conf.TicketSignKeyPath)
 	if err != nil {
-		log.Fatal("Error while reading key for signing (" + ticketSignKeyName +"):", err)
+		log.Fatal("Error while reading key for signing ("+ticketSignKeyName+"):", err)
 	}
 }
 
@@ -330,7 +331,7 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 		// individually marshalled and newlines are appended.
 		//x, _ := json.Marshal(tskerrors)
 		//w.Write(x)
-		for _, j := range(tskerrors) {
+		for _, j := range tskerrors {
 			x, _ := json.Marshal(j)
 			w.Write(x)
 			w.Write([]byte("\n\n"))
@@ -338,27 +339,26 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type myTransport struct{
-
+type myTransport struct {
 }
 
 type storageResult struct {
-	Sha256 string
-	Sha1 string
-	Md5 string
-	Mime string
-	Source []string
-	Objname []string `json:obj_name`
+	Sha256      string
+	Sha1        string
+	Md5         string
+	Mime        string
+	Source      []string
+	Objname     []string `json:obj_name`
 	Submissions []string
 }
 
 type storageResponse struct {
 	ResponseCode int
-	Failure string
-	Result storageResult
+	Failure      string
+	Result       storageResult
 }
 
-func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
+func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	// Since accessing the Form-values of the request changes the reader,
 	// which cannot be rewinded / seeked, an error would be thrown, if the
 	// request was forwarded with the reader at the wrong position.
@@ -407,22 +407,22 @@ func(t *myTransport) RoundTrip(request *http.Request)(*http.Response, error) {
 		return nil, err
 	}
 	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
-	
+
 	json.Unmarshal(buf, &resp)
 	log.Printf("%+v\n", resp)
 	if resp.ResponseCode == 1 {
-		log.Printf("Successfully uploaded sample with SHA256: %s",resp.Result.Sha256)
+		log.Printf("Successfully uploaded sample with SHA256: %s", resp.Result.Sha256)
 		// Execute automatic tasks
 		if len(conf.AutoTasks) != 0 {
 			task := tasking.Task{
-				PrimaryURI : conf.StorageURI + resp.Result.Sha256,
-				SecondaryURI : "",
-				Filename : name,
-				Tasks : conf.AutoTasks,
-				Tags : []string{},
-				Attempts : 0,
-				Source : source,
-				Download: true,
+				PrimaryURI:   conf.StorageURI + resp.Result.Sha256,
+				SecondaryURI: "",
+				Filename:     name,
+				Tasks:        conf.AutoTasks,
+				Tags:         []string{},
+				Attempts:     0,
+				Source:       source,
+				Download:     true,
 			}
 
 			log.Printf("Automatically executing %+v\n", task)
@@ -443,13 +443,45 @@ func httpRequestIncomingSample(w http.ResponseWriter, r *http.Request) {
 }
 
 func initHTTP() {
-	http.HandleFunc("/task/", httpRequestIncomingTask)
+	// build a secure tls configuration for the http server
+	cfg := &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		PreferServerCipherSuites: true,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		},
+	}
+
+	// necessary to enable strict transport security via header
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		w.Write([]byte("Holmes-Mastergateway.\n"))
+	})
+
+	// productive routes
+	mux.HandleFunc("/task/", httpRequestIncomingTask)
+	mux.HandleFunc("/samples/", httpRequestIncomingSample)
+
+	// storage proxy
 	storageURI, _ := url.Parse(conf.StorageURI)
 	proxy = httputil.NewSingleHostReverseProxy(storageURI)
 	proxy.Transport = &myTransport{}
-	http.HandleFunc("/samples/", httpRequestIncomingSample)
+
+	// server settings
+	srv := &http.Server{
+		Addr:         conf.HTTP,
+		Handler:      mux,
+		TLSConfig:    cfg,
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
+	}
+
 	log.Printf("Listening on %s\n", conf.HTTP)
-	log.Fatal(http.ListenAndServeTLS(conf.HTTP, conf.CertificatePath, conf.CertificateKeyPath, nil))
+	log.Fatal(srv.ListenAndServeTLS(conf.CertificatePath, conf.CertificateKeyPath))
 }
 
 func initSourceRouting() {
@@ -458,9 +490,9 @@ func initSourceRouting() {
 	srcRouter = make(map[string][]*tasking.Organization)
 
 	log.Println("=====")
-	for num, org := range(conf.Organizations) {
+	for num, org := range conf.Organizations {
 		log.Println(org)
-		for _, src := range(org.Sources) {
+		for _, src := range org.Sources {
 			routes, exists := srcRouter[src]
 			if !exists {
 				srcRouter[src] = []*tasking.Organization{&conf.Organizations[num]}
@@ -481,7 +513,7 @@ func initSourceRouting() {
 
 func initUsers() {
 	users = make(map[string]*tasking.User)
-	for u := range(conf.AllowedUsers) {
+	for u := range conf.AllowedUsers {
 		user := &(conf.AllowedUsers[u])
 		users[user.Name] = user
 	}
