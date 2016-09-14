@@ -3,6 +3,7 @@
 	"SourcesKeysPath":    "config/keys/sources/",
 	"TicketKeysPath":     "config/keys/tickets/",
 	"SampleStorageURI":   "http://localhost:8016/samples/",
+	"AllowedTasks":       {"org1": ["*"], "org2": ["peinfo"]},
 	"RabbitURI":          "localhost:5672/",
 	"RabbitUser":         "guest",
 	"RabbitPassword":     "guest",
