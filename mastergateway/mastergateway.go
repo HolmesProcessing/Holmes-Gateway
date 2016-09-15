@@ -123,7 +123,8 @@ func authenticate(username string, password string) (*tasking.User, error) {
 	// TODO: Ask storage instead of configuration file for credentials
 	user, exists := users[username]
 	if !exists {
-		// TODO: Maybe compare some dummy value to prevent timing based attack
+		// compare some dummy value to prevent timing based attack
+		bcrypt.CompareHashAndPassword([]byte("$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa"), []byte(password))
 		return nil, errors.New("Authentication failed")
 	}
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
@@ -158,35 +159,39 @@ func handleTask(tasksStr string, username string, password string) (error, []tas
 		tskerrors = tskerrors[0:0]
 		log.Printf("\x1b[0;32mSending tasks try #%d\x1b[0m\n", iteration)
 
-		// Sort the tasks for their destination organizations, based on the
-		// source of the task and the srcRouter-configuration
-		tasklists := make(map[*tasking.Organization][]tasking.Task)
+		// Sort the tasks based on their sources
+		tasklists := make(map[string][]tasking.Task)
 		for _, task := range tasks {
-			orgs, found := srcRouter[task.Source]
+			tasklist, found := tasklists[task.Source]
 			if !found {
-				log.Printf("No route for source %s!\n", task.Source)
-				unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
-					TaskStruct: task,
-					Error:      tasking.MyError{Error: errors.New("No route for source!")}})
+				tasklists[task.Source] = []tasking.Task{task}
+			} else {
+				tasklists[task.Source] = append(tasklist, task)
+			}
+		}
+
+		// Send the tasks and handle the answers
+		for source, tasklist := range tasklists {
+			orgs, found := srcRouter[source]
+			if !found {
+				for _, task := range tasklist {
+					log.Printf("No route for source %s!\n", task.Source)
+					unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
+						TaskStruct: task,
+						Error:      tasking.MyError{Error: errors.New("No route for source!")}})
+				}
 				continue
 			}
 			if len(orgs) <= iteration {
-				unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
-					TaskStruct: task,
-					Error:      tasking.MyError{Error: errors.New("Task rejected by all organizations!")}})
+				for _, task := range tasklist {
+					unrecoverableErrors = append(unrecoverableErrors, tasking.TaskError{
+						TaskStruct: task,
+						Error:      tasking.MyError{Error: errors.New("Task rejected by all organizations!")}})
+				}
 				continue
 			}
 			org := orgs[iteration]
-			tasklist, found := tasklists[org]
-			// TODO: Is this efficient?
-			if !found {
-				tasklists[org] = []tasking.Task{task}
-			} else {
-				tasklists[org] = append(tasklist, task)
-			}
-		}
-		// Send the tasks and handle the answers
-		for org, tasklist := range tasklists {
+
 			err, answerString := sendTaskList(tasklist, org)
 			if err != nil {
 				log.Println("Error while sending tasks: ", err)
