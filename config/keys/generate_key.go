@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"os"
 	"encoding/pem"
 	"log"
+	"os"
 )
 
 func main() {
@@ -15,14 +15,14 @@ func main() {
 	}
 	fname := os.Args[1]
 	log.Println(fname)
-	priv, err := rsa.GenerateKey(rand.Reader,1024)
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Fatal("Error generating key:", err)
 	}
 
 	pemdataPriv := pem.EncodeToMemory(
 		&pem.Block{
-			Type: "RSA PRIVATE KEY",
+			Type:  "RSA PRIVATE KEY",
 			Bytes: x509.MarshalPKCS1PrivateKey(priv),
 		},
 	)
@@ -33,13 +33,13 @@ func main() {
 
 	pemdataPub := pem.EncodeToMemory(
 		&pem.Block{
-			Type: "RSA PUBLIC KEY",
+			Type:  "RSA PUBLIC KEY",
 			Bytes: pub,
 		},
 	)
-	fPriv, err := os.Create("./"+fname+".priv")
+	fPriv, err := os.Create("./" + fname + ".priv")
 
-	fPub, err := os.Create("./"+fname+".pub")
+	fPub, err := os.Create("./" + fname + ".pub")
 	_, err = fPriv.Write(pemdataPriv)
 	_, err = fPub.Write(pemdataPub)
 	log.Printf("%+v\n", priv)
