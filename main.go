@@ -1,10 +1,11 @@
 package main
+
 import (
-	"os"
 	"flag"
-	"path/filepath"
-	"github.com/HolmesProcessing/Holmes-Gateway/mastergateway"
 	"github.com/HolmesProcessing/Holmes-Gateway/gateway"
+	"github.com/HolmesProcessing/Holmes-Gateway/mastergateway"
+	"os"
+	"path/filepath"
 )
 
 func main() {
@@ -16,7 +17,11 @@ func main() {
 
 	if confPath == "" {
 		confPath, _ = filepath.Abs(filepath.Dir(os.Args[0]))
-		confPath += "/config/gateway.conf"
+		if master {
+			confPath = filepath.Join(confPath, "/config/gateway-master.conf")
+		} else {
+			confPath = filepath.Join(confPath, "/config/gateway.conf")
+		}
 	}
 	if master {
 		mastergateway.Start(confPath)
