@@ -420,7 +420,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		// Execute automatic tasks
 		if len(conf.AutoTasks) != 0 {
 			task := tasking.Task{
-				PrimaryURI:   conf.StorageURI + resp.Result.Sha256,
+				PrimaryURI:   resp.Result.Sha256,
 				SecondaryURI: "",
 				Filename:     name,
 				Tasks:        conf.AutoTasks,
