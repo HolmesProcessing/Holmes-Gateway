@@ -322,7 +322,6 @@ func readKeys() {
 }
 
 func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	task := r.FormValue("task")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
@@ -465,6 +464,10 @@ func initHTTP() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "origin, content-type, accept")
+		w.Header().Set("Content-Type", "application/json")
+
 		w.Write([]byte("Holmes-Mastergateway.\n"))
 	})
 
