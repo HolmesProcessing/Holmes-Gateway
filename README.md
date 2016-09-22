@@ -45,7 +45,8 @@ The following configuration options are available:
 * **TicketSignKeyPath**: Path to the private key which is used for signing tickets
 * **Organizations**: The list of all known slave-gateways. In the future, this may move to be dynamically configurable from Holmes-Storage. For each Organization a Name, the URI, and the list of sources must be given.
 * **OwnOrganization**: The name of the own organization. An organization with this name must also be present in the list of organizations. This organization is used for automatic tasking.
-* **AllowedUsers**: A dict mapping the usernames of allowed users to their bcrypt-password-hash. In the future, the credentials will be stored in Holmes-Storage instead
+* **AllowedUsers**: A dict mapping the usernames of allowed users to their bcrypt-password-hash. In the future, the credentials will be stored in Holmes-Storage instead.
+**NOTE:** The library used for checking the passwords does not support all the possible algorithms for bcrypt. To make sure that your passwords are accepted, it is recommended to use blowfish (hash starts with "$2a$"). Keep an eye on the output of your master-gateway, if your password is not accepted.
 * **StorageURI**: The URI to where storage resides for uploading samples
 * **AutoTasks**: A dict for tasks, that should be executed automatically whenever a sample is uploaded.
 * **CertificateKeyPath**: The path to the key of the HTTPS-certificate

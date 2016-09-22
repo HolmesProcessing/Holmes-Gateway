@@ -125,10 +125,12 @@ func authenticate(username string, password string) (*tasking.User, error) {
 	if !exists {
 		// compare some dummy value to prevent timing based attack
 		bcrypt.CompareHashAndPassword([]byte("$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa"), []byte(password))
+		log.Println("User does not exist")
 		return nil, errors.New("Authentication failed")
 	}
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
+		log.Printf("\x1b[0;31m%s\x1b[0m\n", err)
 		return nil, errors.New("Authentication failed")
 	} else {
 		log.Printf("Authenticated as %s\n", username)
@@ -413,9 +415,9 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
 
 	json.Unmarshal(buf, &resp)
-	log.Printf("%+v\n", resp)
+	//log.Printf("%+v\n", resp)
 	if resp.ResponseCode == 1 {
-		log.Printf("Successfully uploaded sample with SHA256: %s", resp.Result.Sha256)
+		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.Sha256)
 		// Execute automatic tasks
 		if len(conf.AutoTasks) != 0 {
 			task := tasking.Task{

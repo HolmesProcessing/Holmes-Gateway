@@ -1,18 +1,18 @@
 package gateway
 
 import (
-	"log"
-	"os"
-	"sync"
-	"time"
-	"errors"
-	"strings"
-	"net/http"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/streadway/amqp"
+	"errors"
 	"github.com/HolmesProcessing/Holmes-Gateway/utils"
+	"github.com/streadway/amqp"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
 )
 
 type RabbitConf struct {
@@ -22,18 +22,17 @@ type RabbitConf struct {
 }
 
 type config struct {
-	HTTP               string
-	SourcesKeysPath    string
-	TicketKeysPath     string
-	SampleStorageURI   string
-	AllowedTasks       map[string][]string
-	RabbitURI          string
-	RabbitUser         string
-	RabbitPassword     string
-	RabbitDefault      RabbitConf
-	Rabbit             map[string]RabbitConf
+	HTTP             string
+	SourcesKeysPath  string
+	TicketKeysPath   string
+	SampleStorageURI string
+	AllowedTasks     map[string][]string
+	RabbitURI        string
+	RabbitUser       string
+	RabbitPassword   string
+	RabbitDefault    RabbitConf
+	Rabbit           map[string]RabbitConf
 }
-
 
 var conf *config
 var keys map[string]*rsa.PrivateKey
@@ -50,7 +49,7 @@ func decryptTicket(enc *tasking.Encrypted) (string, *tasking.MyError, []byte) {
 	if !exists {
 		return "", &tasking.MyError{Error: errors.New("Private key " + enc.KeyFingerprint + " not found"), Code: tasking.ERR_KEY_UNKNOWN}, nil
 	}
-	
+
 	// Decrypt symmetric key using the asymmetric key
 	symKey, err := tasking.RsaDecrypt(enc.EncryptedKey, asymKey)
 	if err != nil {
@@ -66,17 +65,17 @@ func decryptTicket(enc *tasking.Encrypted) (string, *tasking.MyError, []byte) {
 	return string(decrypted), nil, symKey
 }
 
-func stringPrintable(s string) (bool) {
-	for i := 0; i < len(s); i++{
+func stringPrintable(s string) bool {
+	for i := 0; i < len(s); i++ {
 		c := int(s[i])
-		if c < 0x9 || (c > 0x0d && c < 0x20) || (c >0x7e){
+		if c < 0x9 || (c > 0x0d && c < 0x20) || (c > 0x7e) {
 			return false
 		}
 	}
 	return true
 }
 
-func checkTask(task *tasking.Task) (error){
+func checkTask(task *tasking.Task) error {
 	log.Printf("Validating %+v\n", task)
 	if task.PrimaryURI == "" || !stringPrintable(task.PrimaryURI) {
 		return errors.New("Invalid Task (PrimaryURI invalid)")
@@ -104,13 +103,13 @@ func checkTask(task *tasking.Task) (error){
 		return errors.New("Invalid Task (Negative number of attempts)")
 	}
 	if !stringPrintable(task.Comment) {
-		return errors.New("Invalid Task (Comment invalid)")	
+		return errors.New("Invalid Task (Comment invalid)")
 	}
 	return nil
 }
 
 func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
-	tskerrors := make([]tasking.TaskError,0)
+	tskerrors := make([]tasking.TaskError, 0)
 	var ticket tasking.Ticket
 	err := json.Unmarshal([]byte(ticketStr), &ticket)
 	if err != nil {
@@ -148,8 +147,8 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 		if e != nil {
 			e2 := tasking.MyError{Error: e, Code: tasking.ERR_TASK_INVALID}
 			tskerrors = append(tskerrors, tasking.TaskError{
-				TaskStruct : task,
-				Error : e2})
+				TaskStruct: task,
+				Error:      e2})
 		} else {
 			// Check whether the corresponding tasks are allowed in ACL:
 			acceptedTasks := make(map[string][]string)
@@ -186,8 +185,8 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 				task.Tasks = rejectedTasks
 				e2 := tasking.MyError{Error: errors.New("Rejected"), Code: tasking.ERR_NOT_ALLOWED}
 				tskerrors = append(tskerrors, tasking.TaskError{
-					TaskStruct : task,
-					Error : e2 })
+					TaskStruct: task,
+					Error:      e2})
 			}
 		}
 	}
@@ -210,22 +209,22 @@ func decodeTask(r *http.Request) (*tasking.Encrypted, *tasking.MyError) {
 	}
 
 	task := tasking.Encrypted{
-		KeyFingerprint : r.FormValue("KeyFingerprint"),
-		EncryptedKey   : ek,
-		Encrypted      : en,
-		IV             : iv	}
-	log.Printf("New task request:\n%+v\n", task);
+		KeyFingerprint: r.FormValue("KeyFingerprint"),
+		EncryptedKey:   ek,
+		Encrypted:      en,
+		IV:             iv}
+	// log.Printf("New task request:\n%+v\n", task);
 	return &task, nil
 }
 
 func pushToTransport(task tasking.Task) {
 	log.Printf("%+v\n", task)
-	
+
 	// split task:
 	tasks := task.Tasks
 	for t := range tasks {
 		log.Println(t)
-		task.Tasks = map[string][]string{t : tasks[t]}
+		task.Tasks = map[string][]string{t: tasks[t]}
 		msgBody, err := json.Marshal(task)
 		if err != nil {
 			log.Println("Error while Marshalling: ", err)
@@ -241,7 +240,7 @@ func pushToTransport(task tasking.Task) {
 			rconf.RoutingKey, // key
 			false,            // mandatory
 			false,            // immediate
-			amqp.Publishing {DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody,}) //msg
+			amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
 
 		if err != nil {
 			log.Println("Error while pushing to transport: ", err)
@@ -250,7 +249,7 @@ func pushToTransport(task tasking.Task) {
 	}
 }
 
-func handleIncoming(task *tasking.Encrypted) (*tasking.MyError, []tasking.TaskError, []byte){
+func handleIncoming(task *tasking.Encrypted) (*tasking.MyError, []tasking.TaskError, []byte) {
 	decTicket, err, symKey := decryptTicket(task)
 	if err != nil {
 		log.Println("Error while decrypting: ", err)
@@ -277,7 +276,7 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 
 	err, tskerrors, symKey := handleIncoming(task)
 	answer := tasking.GatewayAnswer{
-		Error: err,
+		Error:     err,
 		TskErrors: tskerrors,
 	}
 	// encrypt answer
@@ -293,13 +292,13 @@ func httpRequestIncoming(w http.ResponseWriter, r *http.Request) {
 func readKeys() {
 	// Load the private keys for the sources
 	tasking.LoadKeysAndWatch(conf.SourcesKeysPath, ".priv",
-		func(name string){
+		func(name string) {
 			keysMutex.Lock()
 			delete(keys, name)
 			keysMutex.Unlock()
 			log.Println(keys)
 		},
-		func(name string){
+		func(name string) {
 			key, name, err := tasking.LoadPrivateKey(name)
 			if err != nil {
 				log.Printf("Error reading key (%s):%s\n", name, err)
@@ -314,13 +313,13 @@ func readKeys() {
 
 	// Load the public keys for the tickets
 	tasking.LoadKeysAndWatch(conf.TicketKeysPath, ".pub",
-		func(name string){
+		func(name string) {
 			keysMutex.Lock()
 			delete(ticketKeys, name)
 			keysMutex.Unlock()
 			log.Println(ticketKeys)
 		},
-		func(name string){
+		func(name string) {
 			key, name, err := tasking.LoadPublicKey(name)
 			if err != nil {
 				log.Printf("Error reading key (%s):%s\n", name, err)
@@ -330,8 +329,8 @@ func readKeys() {
 			ticketKeys[name] = key
 			keysMutex.Unlock()
 			log.Println(ticketKeys)
-	})
-	
+		})
+
 }
 
 func addRabbitConf(r RabbitConf) {
@@ -368,7 +367,7 @@ func addRabbitConf(r RabbitConf) {
 }
 
 func connectRabbit() {
-	conn, err := amqp.Dial("amqp://"+conf.RabbitUser+":"+conf.RabbitPassword+"@"+conf.RabbitURI)
+	conn, err := amqp.Dial("amqp://" + conf.RabbitUser + ":" + conf.RabbitPassword + "@" + conf.RabbitURI)
 	tasking.FailOnError(err, "Failed to connect to RabbitMQ")
 	//defer conn.Close()
 
@@ -395,7 +394,7 @@ func Start(confPath string) {
 	cfile, _ := os.Open(confPath)
 	err := json.NewDecoder(cfile).Decode(&conf)
 	tasking.FailOnError(err, "Couldn't read config file")
-	
+
 	// Parse the private keys
 	keys = make(map[string]*rsa.PrivateKey)
 	ticketKeys = make(map[string]*rsa.PublicKey)
