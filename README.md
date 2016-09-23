@@ -1,7 +1,8 @@
-# Holmes-Gateway
-Main program for receiving tasking and objects. It validates input, checks authentication, and pushes the requests to the pipeline.
+# Holmes-Gateway [![Build Status](https://travis-ci.org/HolmesProcessing/Holmes-Gateway.svg?branch=master)](https://travis-ci.org/HolmesProcessing/Holmes-Gateway)
 
 ## Overview
+Holmes-Gateway orchestrates the submission of objects and tasks to HolmesProcessing. Foremost, this greatly simplifies the tasking and enables the ability to automatically route tasks to [Holmes-Totem](https://github.com/HolmesProcessing/Holmes-Totem) and [Holmes-Totem-Dynamic](https://github.com/HolmesProcessing/Holmes-Totem-Dynamic) at a Service level. In addition, Holmes-Gateway provides validation and authentication. Finally, Holmes-Gateway provides the technical foundation for collaboration between organizations. 
+
 Holmes-Gateway consists of two components:
 The Master-Gateway and the Slave-Gateway (also known as Organizational Gateway).
 Holmes-Gateway is meant to prevent a user from directly connecting to [Holmes-Storage](https://github.com/HolmesProcessing/Holmes-Storage) or RabbitMQ.
@@ -17,7 +18,7 @@ Slave-Gateways can be configured to only accept requests for certain services fo
 
 This way Slave-Gateway can push long-lasting tasks (usually those that perform dynamic analysis) into different queues than quick tasks and thus distribute those tasks among different instances of [Holmes-Totem](https://github.com/HolmesProcessing/Holmes-Totem) and [Holmes-Totem-Dynamic](https://github.com/HolmesProcessing/Holmes-Totem-Dynamic).
 
-## Highlights
+### Highlights
 * Collaborative tasking: Holmes-Gateway allows organizations to enable other organizations to execute analysis-tasks on their samples without actually give them access to these samples.
 * ACL enforcement: Users who want to submit tasks or new objects need to authenticate before they can do so. Also an organization can decide which services an other organization is allowed to execute on their samples.
 * Central point for tasking and sample upload: Without Holmes-Gateway, a user who wants to task the system needs access to RabbitMQ, while a user who wants to upload samples needs access to Holmes-Storage.
