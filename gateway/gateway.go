@@ -222,18 +222,30 @@ func pushToTransport(task tasking.Task) {
 
 	// split task:
 	tasks := task.Tasks
+
+	// since each task (e.g. CUCKOO, PEID, ...) can have a special destination defined
+	// in the config we go trough all tasks in this task struct and check it.
+	// If the task had a special destination we cut it out of the original task struct and
+	// send it seperately.
+	// If the task is send using RabbitDefault we just leave it in the struct and send the
+	// whole task struct after we went trough it completly.
 	for t := range tasks {
 		log.Println(t)
+
+		// check if special routing is defined in the config
+		rconf, exists := conf.Rabbit[t]
+		if !exists {
+			continue
+		}
+
+		// build a seperate task struct
 		task.Tasks = map[string][]string{t: tasks[t]}
 		msgBody, err := json.Marshal(task)
 		if err != nil {
 			log.Println("Error while Marshalling: ", err)
 			return
 		}
-		rconf, exists := conf.Rabbit[t]
-		if !exists {
-			rconf = conf.RabbitDefault
-		}
+
 		log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", rconf.Exchange, msgBody)
 		err = rabbitChannel.Publish(
 			rconf.Exchange,   // exchange
@@ -246,6 +258,34 @@ func pushToTransport(task tasking.Task) {
 			log.Println("Error while pushing to transport: ", err)
 			return
 		}
+
+		// delete the task from the tasks list of the struct
+		delete(tasks, t)
+	}
+
+	// If there are tasks left we send them all as one big pack to the default destination.
+	if len(tasks) == 0 {
+		return
+	}
+
+	task.Tasks = tasks
+	msgBody, err := json.Marshal(task)
+	if err != nil {
+		log.Println("Error while Marshalling: ", err)
+		return
+	}
+
+	log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", conf.RabbitDefault.Exchange, msgBody)
+	err = rabbitChannel.Publish(
+		conf.RabbitDefault.Exchange,   // exchange
+		conf.RabbitDefault.RoutingKey, // key
+		false, // mandatory
+		false, // immediate
+		amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
+
+	if err != nil {
+		log.Println("Error while pushing to transport: ", err)
+		return
 	}
 }
 
