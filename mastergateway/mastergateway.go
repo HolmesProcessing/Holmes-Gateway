@@ -375,8 +375,9 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		log.Printf("Error reading body!", err)
 		return nil, err
 	}
-	reqrdr := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
-	reqrdr2 := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
+
+	reader := bytes.NewReader(reqbuf)
+	reqrdr := ioutil.NopCloser(reader)
 	request.Body = reqrdr
 
 	// Read the name and the source from the request, because they can not be
@@ -388,7 +389,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	password := request.FormValue("password")
 
 	// restore the reader for the body
-	request.Body = reqrdr2
+	reader.Seek(0, 0)
 
 	user, err := authenticate(username, password)
 	if err != nil {
