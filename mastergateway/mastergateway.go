@@ -370,7 +370,11 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	// request was forwarded with the reader at the wrong position.
 	// For this reason, the whole body is read and two new readers are created:
 	// One to read the Form-values from, and one for restoring the original.
-	reqbuf, err := ioutil.ReadAll(request.Body)
+	var err error
+	reqbuf := make([]byte, 0, request.ContentLength)
+	request.ParseMultipartForm(1024 * 1024 * 200)
+
+	//_, err = io.ReadFull(request.Body, reqbuf)
 	if err != nil {
 		log.Printf("Error reading body!", err)
 		return nil, err
@@ -378,8 +382,14 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 
 	reader := bytes.NewReader(reqbuf)
 	reqrdr := ioutil.NopCloser(reader)
+	reqBodyBck := request.Body
 	request.Body = reqrdr
 
+	defer func() {
+		reqbuf = nil
+		reqrdr.Close()
+		reqBodyBck.Close()
+	}()
 	// Read the name and the source from the request, because they can not be
 	// reconstructed from storage's response.
 	name := request.FormValue("name")
@@ -408,12 +418,14 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 
 	// Parse the response. If it was successful, execute automatic tasks
 	var resp storageResponse
-	buf, err := ioutil.ReadAll(response.Body)
+	buf := make([]byte, 0, response.ContentLength)
+
+	_, err = io.ReadFull(response.Body, buf)
 	if err != nil {
 		log.Printf("Error reading body!", err)
 		return nil, err
 	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
+	rdr := ioutil.NopCloser(bytes.NewReader(buf))
 
 	json.Unmarshal(buf, &resp)
 	//log.Printf("%+v\n", resp)
