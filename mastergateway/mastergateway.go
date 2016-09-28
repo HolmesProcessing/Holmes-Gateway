@@ -382,13 +382,11 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 
 	reader := bytes.NewReader(reqbuf)
 	reqrdr := ioutil.NopCloser(reader)
-	reqBodyBck := request.Body
 	request.Body = reqrdr
 
 	defer func() {
-		reqbuf = nil
+		request.Body.Close()
 		reqrdr.Close()
-		reqBodyBck.Close()
 	}()
 	// Read the name and the source from the request, because they can not be
 	// reconstructed from storage's response.
@@ -426,7 +424,10 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	rdr := ioutil.NopCloser(bytes.NewReader(buf))
-
+	defer func() {
+		rdr.Close()
+		response.Body.Close()
+	}()
 	json.Unmarshal(buf, &resp)
 	//log.Printf("%+v\n", resp)
 	if resp.ResponseCode == 1 {
