@@ -49,7 +49,7 @@ The following configuration options are available:
 * **AllowedUsers**: A dict mapping the usernames of allowed users to their bcrypt-password-hash. In the future, the credentials will be stored in Holmes-Storage instead.
 **NOTE:** The library used for checking the passwords does not support all the possible algorithms for bcrypt. To make sure that your passwords are accepted, it is recommended to use blowfish (hash starts with "$2a$"). Keep an eye on the output of your master-gateway, if your password is not accepted.
 * **StorageURI**: The URI to where storage resides for uploading samples
-* **AutoTasks**: A dict for tasks, that should be executed automatically whenever a sample is uploaded.
+* **AutoTasks**: A dict mapping the mimetype to a dict of tasks, that should be executed automatically whenever a sample is uploaded. The mimetype returned by storage is checked against every value in the dict. If the value from the dict is contained in the returned value, all the corresponding tasks are executed. e.g.: `{"PE32":{"PEINFO":[],"PEID":[]}, "":{"YARA":[]}}` means that for every uploaded file the service "YARA" is executed (since every string contains ""). Additionally, files with a memetype, which contains "PE32", the services "PEINFO" and "PEID" are executed.
 * **CertificateKeyPath**: The path to the key of the HTTPS-certificate
 * **CertificatePath**: The path to the HTTPS-certificate
 
