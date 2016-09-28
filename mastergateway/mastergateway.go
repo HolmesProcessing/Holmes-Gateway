@@ -18,18 +18,19 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type config struct {
-	HTTP               string                 // The HTTP-binding for listening (IP+Port)
-	SourcesKeysPath    string                 // Path to the public keys of the sources
-	TicketSignKeyPath  string                 // Path to the private key used for signing tickets
-	Organizations      []tasking.Organization // All the known organizations
-	OwnOrganization    string                 // The name of the own organization (Should also be present in the list "Organizations")
-	StorageURI         string                 // URI of HolmesStorage
-	AutoTasks          map[string][]string    // Tasks that should be automatically executed on new objects
+	HTTP               string                           // The HTTP-binding for listening (IP+Port)
+	SourcesKeysPath    string                           // Path to the public keys of the sources
+	TicketSignKeyPath  string                           // Path to the private key used for signing tickets
+	Organizations      []tasking.Organization           // All the known organizations
+	OwnOrganization    string                           // The name of the own organization (Should also be present in the list "Organizations")
+	StorageURI         string                           // URI of HolmesStorage
+	AutoTasks          map[string](map[string][]string) // Tasks that should be automatically executed on new objects mimetype -> taskname -> args
 	CertificatePath    string
 	CertificateKeyPath string
 	AllowedUsers       []tasking.User
@@ -368,17 +369,26 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	// Since accessing the Form-values of the request changes the reader,
 	// which cannot be rewinded / seeked, an error would be thrown, if the
 	// request was forwarded with the reader at the wrong position.
-	// For this reason, the whole body is read and two new readers are created:
-	// One to read the Form-values from, and one for restoring the original.
-	reqbuf, err := ioutil.ReadAll(request.Body)
+	// For this reason, the whole body is read and a new reader is created,
+	// which can be rewinded.
+	var err error
+	reqbuf := make([]byte, request.ContentLength)
+	_, err = io.ReadFull(request.Body, reqbuf)
 	if err != nil {
 		log.Printf("Error reading body!", err)
 		return nil, err
 	}
-	reqrdr := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
-	reqrdr2 := ioutil.NopCloser(bytes.NewBuffer(reqbuf))
+
+	reader := bytes.NewReader(reqbuf)
+	reqrdr := ioutil.NopCloser(reader)
 	request.Body = reqrdr
 
+	defer func() {
+		request.Body.Close()
+		reqrdr.Close()
+	}()
+
+	request.ParseMultipartForm(1024 * 1024 * 200)
 	// Read the name and the source from the request, because they can not be
 	// reconstructed from storage's response.
 	name := request.FormValue("name")
@@ -388,7 +398,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	password := request.FormValue("password")
 
 	// restore the reader for the body
-	request.Body = reqrdr2
+	reader.Seek(0, 0)
 
 	user, err := authenticate(username, password)
 	if err != nil {
@@ -407,32 +417,42 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 
 	// Parse the response. If it was successful, execute automatic tasks
 	var resp storageResponse
-	buf, err := ioutil.ReadAll(response.Body)
+	buf := make([]byte, response.ContentLength)
+
+	_, err = io.ReadFull(response.Body, buf)
 	if err != nil {
 		log.Printf("Error reading body!", err)
 		return nil, err
 	}
-	rdr := ioutil.NopCloser(bytes.NewBuffer(buf))
-
+	rdr := ioutil.NopCloser(bytes.NewReader(buf))
+	defer func() {
+		rdr.Close()
+		response.Body.Close()
+	}()
 	json.Unmarshal(buf, &resp)
 	//log.Printf("%+v\n", resp)
 	if resp.ResponseCode == 1 {
 		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.Sha256)
 		// Execute automatic tasks
-		if len(conf.AutoTasks) != 0 {
-			task := tasking.Task{
-				PrimaryURI:   resp.Result.Sha256,
-				SecondaryURI: "",
-				Filename:     name,
-				Tasks:        conf.AutoTasks,
-				Tags:         []string{},
-				Attempts:     0,
-				Source:       source,
-				Download:     true,
-			}
+		for t := range conf.AutoTasks {
+			if strings.Contains(resp.Result.Mime, t) {
+				autotasks := conf.AutoTasks[t]
+				if len(autotasks) != 0 {
+					task := tasking.Task{
+						PrimaryURI:   resp.Result.Sha256,
+						SecondaryURI: "",
+						Filename:     name,
+						Tasks:        autotasks,
+						Tags:         []string{},
+						Attempts:     0,
+						Source:       source,
+						Download:     true,
+					}
 
-			log.Printf("Automatically executing %+v\n", task)
-			sendTaskList([]tasking.Task{task}, ownOrganization)
+					log.Printf("\x1b[0;33mAutomatically executing %+v\x1b[0m\n", task)
+					sendTaskList([]tasking.Task{task}, ownOrganization)
+				}
+			}
 		}
 	}
 
