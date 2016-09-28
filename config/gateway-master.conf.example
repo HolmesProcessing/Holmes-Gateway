@@ -11,4 +11,5 @@
 	"AutoTasks":         {"PE32":{"PEINFO":[],"PEID":[]}, "":{"YARA":[]}},
 	"CertificateKeyPath":"cert-key.pem",
 	"CertificatePath":   "cert.pem"
+	"MaxUploadSize":     200
 }
