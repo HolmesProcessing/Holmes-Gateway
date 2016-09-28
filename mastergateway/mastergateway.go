@@ -23,13 +23,13 @@ import (
 )
 
 type config struct {
-	HTTP               string                 // The HTTP-binding for listening (IP+Port)
-	SourcesKeysPath    string                 // Path to the public keys of the sources
-	TicketSignKeyPath  string                 // Path to the private key used for signing tickets
-	Organizations      []tasking.Organization // All the known organizations
-	OwnOrganization    string                 // The name of the own organization (Should also be present in the list "Organizations")
-	StorageURI         string                 // URI of HolmesStorage
-	AutoTasks          map[string][]string    // Tasks that should be automatically executed on new objects
+	HTTP               string                           // The HTTP-binding for listening (IP+Port)
+	SourcesKeysPath    string                           // Path to the public keys of the sources
+	TicketSignKeyPath  string                           // Path to the private key used for signing tickets
+	Organizations      []tasking.Organization           // All the known organizations
+	OwnOrganization    string                           // The name of the own organization (Should also be present in the list "Organizations")
+	StorageURI         string                           // URI of HolmesStorage
+	AutoTasks          map[string](map[string][]string) // Tasks that should be automatically executed on new objects mimetype -> taskname -> args
 	CertificatePath    string
 	CertificateKeyPath string
 	AllowedUsers       []tasking.User
@@ -372,9 +372,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	// One to read the Form-values from, and one for restoring the original.
 	var err error
 	reqbuf := make([]byte, 0, request.ContentLength)
-	request.ParseMultipartForm(1024 * 1024 * 200)
-
-	//_, err = io.ReadFull(request.Body, reqbuf)
+	_, err = io.ReadFull(request.Body, reqbuf)
 	if err != nil {
 		log.Printf("Error reading body!", err)
 		return nil, err
@@ -383,11 +381,13 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	reader := bytes.NewReader(reqbuf)
 	reqrdr := ioutil.NopCloser(reader)
 	request.Body = reqrdr
-
-	defer func() {
-		request.Body.Close()
-		reqrdr.Close()
-	}()
+	/*
+		defer func() {
+			request.Body.Close()
+			reqrdr.Close()
+		}()
+	*/
+	request.ParseMultipartForm(1024 * 1024 * 200)
 	// Read the name and the source from the request, because they can not be
 	// reconstructed from storage's response.
 	name := request.FormValue("name")
@@ -433,12 +433,13 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if resp.ResponseCode == 1 {
 		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.Sha256)
 		// Execute automatic tasks
-		if len(conf.AutoTasks) != 0 {
+		autotasks := conf.AutoTasks[resp.Result.Mime]
+		if len(autotasks) != 0 {
 			task := tasking.Task{
 				PrimaryURI:   resp.Result.Sha256,
 				SecondaryURI: "",
 				Filename:     name,
-				Tasks:        conf.AutoTasks,
+				Tasks:        autotasks,
 				Tags:         []string{},
 				Attempts:     0,
 				Source:       source,
