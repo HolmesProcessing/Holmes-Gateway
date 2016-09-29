@@ -31,6 +31,7 @@ type config struct {
 	OwnOrganization    string                           // The name of the own organization (Should also be present in the list "Organizations")
 	StorageURI         string                           // URI of HolmesStorage
 	AutoTasks          map[string](map[string][]string) // Tasks that should be automatically executed on new objects mimetype -> taskname -> args
+	MaxUploadSize      uint32                           // The maximum size of a sample-upload in Megabyte
 	CertificatePath    string
 	CertificateKeyPath string
 	AllowedUsers       []tasking.User
@@ -372,6 +373,13 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	// For this reason, the whole body is read and a new reader is created,
 	// which can be rewinded.
 	var err error
+	if request.ContentLength > 1024*1024*int64(conf.MaxUploadSize) {
+		respBody := ioutil.NopCloser(bytes.NewBufferString("Upload too large"))
+		resp := &http.Response{StatusCode: 413, Body: respBody}
+		respBody.Close()
+		log.Println("Upload too large")
+		return resp, nil
+	}
 	reqbuf := make([]byte, request.ContentLength)
 	_, err = io.ReadFull(request.Body, reqbuf)
 	if err != nil {
@@ -388,7 +396,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		reqrdr.Close()
 	}()
 
-	request.ParseMultipartForm(1024 * 1024 * 200)
+	request.ParseMultipartForm(1024 * 1024 * int64(conf.MaxUploadSize))
 	// Read the name and the source from the request, because they can not be
 	// reconstructed from storage's response.
 	name := request.FormValue("name")
@@ -551,7 +559,7 @@ func initUsers() {
 
 func Start(confPath string) {
 	// Parse the configuration
-	conf = &config{}
+	conf = &config{MaxUploadSize: 200}
 	cfile, _ := os.Open(confPath)
 	err := json.NewDecoder(cfile).Decode(&conf)
 	tasking.FailOnError(err, "Couldn't read config file")
