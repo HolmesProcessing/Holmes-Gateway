@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -159,7 +158,6 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 				acceptedTasks = task.Tasks
 			} else {
 				for tsk, arg := range task.Tasks {
-					tsk = strings.ToLower(tsk)
 					_, tAllowed := allowedForOrg[tsk]
 					if tAllowed {
 						acceptedTasks[tsk] = arg
@@ -494,8 +492,7 @@ func Start(confPath string) {
 	ticketKeys = make(map[string]*rsa.PublicKey)
 	readKeys()
 
-	// Make sure, allowed tasks are in lower case, as they are compared
-	// case insensitive. Also bring them into a map, since this is more
+	// bring the keys into a map, since this is more
 	// efficient in our case
 	allowedTasks = make(map[string](map[string]struct{}))
 	for org, tasks := range conf.AllowedTasks {
@@ -503,7 +500,7 @@ func Start(confPath string) {
 		for _, t := range tasks {
 			// struct{}{} is just an empty placeholder.
 			// we are only interested in whether the key exists in the map
-			allowed[strings.ToLower(t)] = struct{}{}
+			allowed[t] = struct{}{}
 		}
 		allowedTasks[org] = allowed
 	}
