@@ -1,23 +1,23 @@
 package tasking
 
 import (
-	"os"
-	"log"
 	"bytes"
-	"time"
-	"errors"
-	"io/ioutil"
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/rand"
 	"crypto/x509"
-	"encoding/pem"
 	"encoding/json"
-	"path/filepath"
+	"encoding/pem"
+	"errors"
 	"github.com/howeyc/fsnotify"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"time"
 )
 
 type Ticket struct {
@@ -30,28 +30,28 @@ type Ticket struct {
 // Tasks are encrypted with a symmetric key (EncryptedKey), which is
 // encrypted with the asymmetric key in KeyFingerprint
 type Encrypted struct {
-	KeyFingerprint  string
-	EncryptedKey    []byte
-	Encrypted       []byte
-	IV              []byte
+	KeyFingerprint string
+	EncryptedKey   []byte
+	Encrypted      []byte
+	IV             []byte
 }
 
 type Task struct {
-	PrimaryURI     string              `json:"primaryURI"`
-	SecondaryURI   string              `json:"secondaryURI"`
-	Filename       string              `json:"filename"`
-	Tasks          map[string][]string `json:"tasks"`
-	Tags           []string            `json:"tags"`
-	Attempts       int                 `json:"attempts"`
-	Source         string              `json:"source"`
-	Download       bool                `json:"download"`
-	Comment        string              `json:"comment"`
+	PrimaryURI   string              `json:"primaryURI"`
+	SecondaryURI string              `json:"secondaryURI"`
+	Filename     string              `json:"filename"`
+	Tasks        map[string][]string `json:"tasks"`
+	Tags         []string            `json:"tags"`
+	Attempts     int                 `json:"attempts"`
+	Source       string              `json:"source"`
+	Download     bool                `json:"download"`
+	Comment      string              `json:"comment"`
 }
 
 type Organization struct {
-	Name       string
-	Uri        string
-	Sources    []string
+	Name    string
+	Uri     string
+	Sources []string
 }
 
 type User struct {
@@ -61,14 +61,15 @@ type User struct {
 }
 
 type ErrCode int
+
 const (
-	ERR_NONE ErrCode        = 1 + iota
-	ERR_KEY_UNKNOWN         = iota
-	ERR_ENCRYPTION          = iota
-	ERR_TASK_INVALID        = iota
-	ERR_NOT_ALLOWED         = iota
-	ERR_OTHER_UNRECOVERABLE = iota
-	ERR_OTHER_RECOVERABLE   = iota
+	ERR_NONE                ErrCode = 1 + iota
+	ERR_KEY_UNKNOWN                 = iota
+	ERR_ENCRYPTION                  = iota
+	ERR_TASK_INVALID                = iota
+	ERR_NOT_ALLOWED                 = iota
+	ERR_OTHER_UNRECOVERABLE         = iota
+	ERR_OTHER_RECOVERABLE           = iota
 )
 
 type MyError struct {
@@ -77,30 +78,30 @@ type MyError struct {
 }
 
 type TaskError struct {
-	TaskStruct  Task
-	Error       MyError
+	TaskStruct Task
+	Error      MyError
 }
 
 type GatewayAnswer struct {
-	Error *MyError
+	Error     *MyError
 	TskErrors []TaskError
 }
 
 func (me MyError) MarshalJSON() ([]byte, error) {
 	return json.Marshal(
-		struct{
+		struct {
 			Error string
-			Code ErrCode
+			Code  ErrCode
 		}{
 			Error: me.Error.Error(),
-			Code: me.Code,
+			Code:  me.Code,
 		})
 }
 
 func (me *MyError) UnmarshalJSON(data []byte) error {
-	var s struct{
+	var s struct {
 		Error string
-		Code ErrCode
+		Code  ErrCode
 	}
 	err := json.Unmarshal(data, &s)
 	me.Error = errors.New(s.Error)
@@ -121,12 +122,12 @@ func AesEncrypt(plaintext []byte, key []byte, iv []byte) ([]byte, error) {
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
 
-	padLength := mode.BlockSize()-len(plaintext)%mode.BlockSize()
-	ciphertext := make([]byte,len(plaintext))
+	padLength := mode.BlockSize() - len(plaintext)%mode.BlockSize()
+	ciphertext := make([]byte, len(plaintext))
 	copy(ciphertext, plaintext)
 	ciphertext = append(ciphertext, bytes.Repeat([]byte{byte(padLength)}, padLength)...)
 
-	mode.CryptBlocks(ciphertext,ciphertext)
+	mode.CryptBlocks(ciphertext, ciphertext)
 	return ciphertext, nil
 }
 
@@ -135,15 +136,14 @@ func Sign(message []byte, key *rsa.PrivateKey) ([]byte, error) {
 	return rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hashed[:])
 }
 
-func Verify(signature []byte, message []byte, key *rsa.PublicKey) (error) {
+func Verify(signature []byte, message []byte, key *rsa.PublicKey) error {
 	hashed := sha256.Sum256(message)
 	return rsa.VerifyPKCS1v15(key, crypto.SHA256, hashed[:], signature)
 }
 
-func VerifyTicket(ticket Ticket, key *rsa.PublicKey) (error) {
+func VerifyTicket(ticket Ticket, key *rsa.PublicKey) error {
 	sign := ticket.Signature
 	ticket.Signature = nil
-	log.Println("Verifying signature ", sign)
 	msg, err := json.Marshal(ticket)
 	if err != nil {
 		return err
@@ -157,8 +157,8 @@ func AesDecrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
 		return []byte(""), err
 	}
 	mode := cipher.NewCBCDecrypter(block, iv)
-	plaintext := make([]byte,len(ciphertext))
-	mode.CryptBlocks(plaintext,ciphertext)
+	plaintext := make([]byte, len(ciphertext))
+	mode.CryptBlocks(plaintext, ciphertext)
 	if len(plaintext) == 0 {
 		return []byte(""), errors.New("Empty plaintext")
 	}
@@ -182,14 +182,14 @@ func RsaDecrypt(ciphertext []byte, key *rsa.PrivateKey) ([]byte, error) {
 	return plaintext, err
 }
 
-func LoadPrivateKey(path string)(*rsa.PrivateKey, string, error){
+func LoadPrivateKey(path string) (*rsa.PrivateKey, string, error) {
 	log.Println(path)
 	f, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, "Read", err
 	}
 	priv, rem := pem.Decode(f)
-	if len(rem) != 0  || priv == nil{
+	if len(rem) != 0 || priv == nil {
 		return nil, "Decode", errors.New("Key not in pem-format")
 	}
 	key, err := x509.ParsePKCS1PrivateKey(priv.Bytes)
@@ -203,14 +203,14 @@ func LoadPrivateKey(path string)(*rsa.PrivateKey, string, error){
 	return (*rsa.PrivateKey)(key), path, nil
 }
 
-func LoadPublicKey(path string)(*rsa.PublicKey, string, error){
+func LoadPublicKey(path string) (*rsa.PublicKey, string, error) {
 	log.Println(path)
 	f, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, "Read", err
 	}
 	pub, rem := pem.Decode(f)
-	if len(rem) != 0  || pub == nil{
+	if len(rem) != 0 || pub == nil {
 		return nil, "Decode", errors.New("Key not in pem-format")
 	}
 	key, err := x509.ParsePKIXPublicKey(pub.Bytes)
@@ -227,21 +227,21 @@ func LoadPublicKey(path string)(*rsa.PublicKey, string, error){
 func dirWatcherFunc(watcher *fsnotify.Watcher, ext string, onRemove func(string), onAdd func(string)) {
 	for {
 		select {
-		case ev := <-watcher.Event:		
+		case ev := <-watcher.Event:
 			if filepath.Ext(ev.Name) != ext {
 				continue
 			}
 			log.Println("event:", ev)
-			if ev.IsCreate(){
+			if ev.IsCreate() {
 				log.Println("New key", ev.Name)
 				onAdd(ev.Name)
-			} else if ev.IsDelete() || ev.IsRename(){
+			} else if ev.IsDelete() || ev.IsRename() {
 				// For renamed keys, there is a CREATE-event afterwards so it is just removed here
 				log.Println("Removed key", ev.Name)
 				name := filepath.Base(ev.Name)
 				name = name[:len(name)-len(ext)]
 				onRemove(name)
-			} else if ev.IsModify(){
+			} else if ev.IsModify() {
 				log.Println("Modified key", ev.Name)
 				onRemove(ev.Name)
 				onAdd(ev.Name)
@@ -265,11 +265,11 @@ func DirWatcher(dir string, ext string, onRemove func(string), onAdd func(string
 	FailOnError(err, "Error setting up directory-watcher")
 }
 
-func keyWalkFn(ext string, onAdd func(string), path string, fi os.FileInfo, err error) (error) {
-	if fi.IsDir(){
+func keyWalkFn(ext string, onAdd func(string), path string, fi os.FileInfo, err error) error {
+	if fi.IsDir() {
 		return nil
 	}
-	if !(filepath.Ext(path) == ext){
+	if !(filepath.Ext(path) == ext) {
 		return nil
 	}
 	onAdd(path)
@@ -278,7 +278,7 @@ func keyWalkFn(ext string, onAdd func(string), path string, fi os.FileInfo, err 
 
 func LoadKeysAndWatch(dir string, ext string, onRemove func(string), onAdd func(string)) {
 	err := filepath.Walk(dir,
-		func(path string, fi os.FileInfo, err error) (error) {
+		func(path string, fi os.FileInfo, err error) error {
 			return keyWalkFn(ext, onAdd, path, fi, err)
 		})
 	FailOnError(err, "Error loading keys ")

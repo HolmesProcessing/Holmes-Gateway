@@ -223,6 +223,45 @@ func decodeTask(r *http.Request) (*tasking.Encrypted, *tasking.MyError) {
 	return &task, nil
 }
 
+func pushToAMQP(task *tasking.Task, rconf *RabbitConf) *tasking.MyError {
+	msgBody, err := json.Marshal(task)
+	if err != nil {
+		log.Println("Error while Marshalling: ", err)
+		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+	}
+	pub := amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}
+	log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", rconf.Exchange, msgBody)
+	err = rabbitChannel.Publish(rconf.Exchange, rconf.RoutingKey, false, false, pub)
+
+	if err != nil {
+		log.Println("Error while pushing to transport: ", err)
+		// try to recover three times
+		try := 0
+		for try < 3 {
+			try++
+			log.Println("Trying to restore the connection... #", try)
+			err = connectRabbit()
+			if err == nil {
+				break
+			}
+			// sleep 3 seconds
+			time.Sleep(time.Duration(3000000000))
+		}
+		if err != nil {
+			// could not recover the connection after third try => give up
+			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+		}
+		log.Println("Connection restored")
+
+		// retry pushing
+		err = rabbitChannel.Publish(rconf.Exchange, rconf.RoutingKey, false, false, pub)
+		if err != nil {
+			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+		}
+	}
+	return nil
+}
+
 func pushToTransport(task tasking.Task) *tasking.MyError {
 	log.Printf("%+v\n", task)
 
@@ -246,38 +285,8 @@ func pushToTransport(task tasking.Task) *tasking.MyError {
 
 		// build a seperate task struct
 		task.Tasks = map[string][]string{t: tasks[t]}
-		msgBody, err := json.Marshal(task)
-		if err != nil {
-			log.Println("Error while Marshalling: ", err)
-			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
-		}
-
-		log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", rconf.Exchange, msgBody)
-		err = rabbitChannel.Publish(
-			rconf.Exchange,   // exchange
-			rconf.RoutingKey, // key
-			false,            // mandatory
-			false,            // immediate
-			amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
-
-		if err != nil {
-			log.Println("Error while pushing to transport: ", err)
-			// try to recover
-			log.Println("Trying to restore the connection...")
-			err = connectRabbit()
-			if err != nil {
-				return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
-			}
-			// retry pushing
-			err = rabbitChannel.Publish(
-				rconf.Exchange,   // exchange
-				rconf.RoutingKey, // key
-				false,            // mandatory
-				false,            // immediate
-				amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
-			if err != nil {
-				return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
-			}
+		if err := pushToAMQP(&task, &rconf); err != nil {
+			return err
 		}
 
 		// delete the task from the tasks list of the struct
@@ -290,40 +299,10 @@ func pushToTransport(task tasking.Task) *tasking.MyError {
 	}
 
 	task.Tasks = tasks
-	msgBody, err := json.Marshal(task)
-	if err != nil {
-		log.Println("Error while Marshalling: ", err)
-		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+	if err := pushToAMQP(&task, &conf.RabbitDefault); err != nil {
+		return err
 	}
 
-	log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", conf.RabbitDefault.Exchange, msgBody)
-	err = rabbitChannel.Publish(
-		conf.RabbitDefault.Exchange,   // exchange
-		conf.RabbitDefault.RoutingKey, // key
-		false, // mandatory
-		false, // immediate
-		amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
-
-	if err != nil {
-		log.Println("Error while pushing to transport: ", err)
-		// try to recover
-		log.Println("Trying to restore the connection...")
-		err = connectRabbit()
-		if err != nil {
-			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
-		}
-		// retry pushing
-		err = rabbitChannel.Publish(
-			conf.RabbitDefault.Exchange,   // exchange
-			conf.RabbitDefault.RoutingKey, // key
-			false, // mandatory
-			false, // immediate
-			amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
-		if err != nil {
-			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
-		}
-
-	}
 	return nil
 }
 
