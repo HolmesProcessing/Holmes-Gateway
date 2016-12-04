@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -159,7 +158,6 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 				acceptedTasks = task.Tasks
 			} else {
 				for tsk, arg := range task.Tasks {
-					tsk = strings.ToLower(tsk)
 					_, tAllowed := allowedForOrg[tsk]
 					if tAllowed {
 						acceptedTasks[tsk] = arg
@@ -178,7 +176,15 @@ func handleDecrypted(ticketStr string) (*tasking.MyError, []tasking.TaskError) {
 				task.SecondaryURI = conf.SampleStorageURI + task.SecondaryURI
 			}
 			task.Tasks = acceptedTasks
-			pushToTransport(task)
+			myerr := pushToTransport(task)
+			if myerr != nil {
+				task.PrimaryURI = savedPrimaryURI
+				task.SecondaryURI = savedSecondaryURI
+				task.Tasks = acceptedTasks
+				tskerrors = append(tskerrors, tasking.TaskError{
+					TaskStruct: task,
+					Error:      *myerr})
+			}
 			if len(rejectedTasks) != 0 {
 				task.PrimaryURI = savedPrimaryURI
 				task.SecondaryURI = savedSecondaryURI
@@ -217,7 +223,46 @@ func decodeTask(r *http.Request) (*tasking.Encrypted, *tasking.MyError) {
 	return &task, nil
 }
 
-func pushToTransport(task tasking.Task) {
+func pushToAMQP(task *tasking.Task, rconf *RabbitConf) *tasking.MyError {
+	msgBody, err := json.Marshal(task)
+	if err != nil {
+		log.Println("Error while Marshalling: ", err)
+		return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+	}
+	pub := amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}
+	log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", rconf.Exchange, msgBody)
+	err = rabbitChannel.Publish(rconf.Exchange, rconf.RoutingKey, false, false, pub)
+
+	if err != nil {
+		log.Println("Error while pushing to transport: ", err)
+		// try to recover three times
+		try := 0
+		for try < 3 {
+			try++
+			log.Println("Trying to restore the connection... #", try)
+			err = connectRabbit()
+			if err == nil {
+				break
+			}
+			// sleep 3 seconds
+			time.Sleep(time.Duration(3000000000))
+		}
+		if err != nil {
+			// could not recover the connection after third try => give up
+			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+		}
+		log.Println("Connection restored")
+
+		// retry pushing
+		err = rabbitChannel.Publish(rconf.Exchange, rconf.RoutingKey, false, false, pub)
+		if err != nil {
+			return &tasking.MyError{Error: err, Code: tasking.ERR_OTHER_RECOVERABLE}
+		}
+	}
+	return nil
+}
+
+func pushToTransport(task tasking.Task) *tasking.MyError {
 	log.Printf("%+v\n", task)
 
 	// split task:
@@ -227,7 +272,7 @@ func pushToTransport(task tasking.Task) {
 	// in the config we go trough all tasks in this task struct and check it.
 	// If the task had a special destination we cut it out of the original task struct and
 	// send it seperately.
-	// If the task is send using RabbitDefault we just leave it in the struct and send the
+	// If the task is sent using RabbitDefault we just leave it in the struct and send the
 	// whole task struct after we went trough it completly.
 	for t := range tasks {
 		log.Println(t)
@@ -240,23 +285,8 @@ func pushToTransport(task tasking.Task) {
 
 		// build a seperate task struct
 		task.Tasks = map[string][]string{t: tasks[t]}
-		msgBody, err := json.Marshal(task)
-		if err != nil {
-			log.Println("Error while Marshalling: ", err)
-			return
-		}
-
-		log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", rconf.Exchange, msgBody)
-		err = rabbitChannel.Publish(
-			rconf.Exchange,   // exchange
-			rconf.RoutingKey, // key
-			false,            // mandatory
-			false,            // immediate
-			amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
-
-		if err != nil {
-			log.Println("Error while pushing to transport: ", err)
-			return
+		if err := pushToAMQP(&task, &rconf); err != nil {
+			return err
 		}
 
 		// delete the task from the tasks list of the struct
@@ -265,28 +295,15 @@ func pushToTransport(task tasking.Task) {
 
 	// If there are tasks left we send them all as one big pack to the default destination.
 	if len(tasks) == 0 {
-		return
+		return nil
 	}
 
 	task.Tasks = tasks
-	msgBody, err := json.Marshal(task)
-	if err != nil {
-		log.Println("Error while Marshalling: ", err)
-		return
+	if err := pushToAMQP(&task, &conf.RabbitDefault); err != nil {
+		return err
 	}
 
-	log.Printf("Pushing to %s: \x1b[0;32m%s\x1b[0m\n", conf.RabbitDefault.Exchange, msgBody)
-	err = rabbitChannel.Publish(
-		conf.RabbitDefault.Exchange,   // exchange
-		conf.RabbitDefault.RoutingKey, // key
-		false, // mandatory
-		false, // immediate
-		amqp.Publishing{DeliveryMode: amqp.Persistent, ContentType: "text/plain", Body: msgBody}) //msg
-
-	if err != nil {
-		log.Println("Error while pushing to transport: ", err)
-		return
-	}
+	return nil
 }
 
 func handleIncoming(task *tasking.Encrypted) (*tasking.MyError, []tasking.TaskError, []byte) {
@@ -373,7 +390,7 @@ func readKeys() {
 
 }
 
-func addRabbitConf(r RabbitConf) {
+func addRabbitConf(r RabbitConf) error {
 	queue, err := rabbitChannel.QueueDeclare(
 		r.Queue, //name
 		true,    // durable
@@ -382,7 +399,9 @@ func addRabbitConf(r RabbitConf) {
 		false,   // no-wait
 		nil,     // arguments
 	)
-	tasking.FailOnError(err, "Failed to declare a queue")
+	if err != nil {
+		return errors.New("Failed to declare a queue: " + err.Error())
+	}
 
 	err = rabbitChannel.ExchangeDeclare(
 		r.Exchange, // name
@@ -393,7 +412,9 @@ func addRabbitConf(r RabbitConf) {
 		false,      // no-wait
 		nil,        // arguments
 	)
-	tasking.FailOnError(err, "Failed to declare an exchange")
+	if err != nil {
+		return errors.New("Failed to declare an exchange: " + err.Error())
+	}
 
 	err = rabbitChannel.QueueBind(
 		queue.Name,   // queue name
@@ -402,25 +423,35 @@ func addRabbitConf(r RabbitConf) {
 		false,        // nowait
 		nil,          // arguments
 	)
-	tasking.FailOnError(err, "Failed to bind queue")
-
+	if err != nil {
+		return errors.New("Failed to bind queue: " + err.Error())
+	}
+	return nil
 }
 
-func connectRabbit() {
+func connectRabbit() error {
 	conn, err := amqp.Dial("amqp://" + conf.RabbitUser + ":" + conf.RabbitPassword + "@" + conf.RabbitURI)
-	tasking.FailOnError(err, "Failed to connect to RabbitMQ")
+	if err != nil {
+		return errors.New("Failed to connect to RabbitMQ: " + err.Error())
+	}
 	//defer conn.Close()
 
 	rabbitChannel, err = conn.Channel()
-	tasking.FailOnError(err, "Failed to open a channel")
+	if err != nil {
+		return errors.New("Failed to open a channel: " + err.Error())
+	}
 	//defer rabbitChannel.Close()
 	addRabbitConf(conf.RabbitDefault)
 
 	for r := range conf.Rabbit {
-		addRabbitConf(conf.Rabbit[r])
+		err = addRabbitConf(conf.Rabbit[r])
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Println("Connected to Rabbit")
+	return nil
 }
 
 func initHTTP() {
@@ -440,8 +471,7 @@ func Start(confPath string) {
 	ticketKeys = make(map[string]*rsa.PublicKey)
 	readKeys()
 
-	// Make sure, allowed tasks are in lower case, as they are compared
-	// case insensitive. Also bring them into a map, since this is more
+	// bring the keys into a map, since this is more
 	// efficient in our case
 	allowedTasks = make(map[string](map[string]struct{}))
 	for org, tasks := range conf.AllowedTasks {
@@ -449,13 +479,14 @@ func Start(confPath string) {
 		for _, t := range tasks {
 			// struct{}{} is just an empty placeholder.
 			// we are only interested in whether the key exists in the map
-			allowed[strings.ToLower(t)] = struct{}{}
+			allowed[t] = struct{}{}
 		}
 		allowedTasks[org] = allowed
 	}
 
 	// Connect to rabbitmq
-	connectRabbit()
+	err = connectRabbit()
+	tasking.FailOnError(err, "Failed while connecting to Rabbit")
 
 	// Setup the HTTP-listener
 	initHTTP()
