@@ -413,11 +413,18 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
+	request.URL, err = url.Parse(request.URL.String() + "sample/store")
+
 	form, _ := url.ParseQuery(request.URL.RawQuery)
 	form.Set("user_id", strconv.Itoa(user.Id))
 	request.URL.RawQuery = form.Encode()
+
 	// Do the proxy-request
-	response, err := http.DefaultTransport.RoundTrip(request)
+	trans := http.DefaultTransport.(*http.Transport)
+	// If you want to disable certificate validation, uncomment this line
+	// trans.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	response, err := trans.RoundTrip(request)
 	if err != nil {
 		log.Printf("Error performing proxy-request!", err)
 		return nil, err
