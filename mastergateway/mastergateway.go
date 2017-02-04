@@ -446,7 +446,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}()
 	json.Unmarshal(buf, &resp)
 	//log.Printf("%+v\n", resp)
-	if resp.ResponseCode == 1 {
+	if resp.ResponseCode == 0 {
 		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.Sha256)
 		// Execute automatic tasks
 		for t := range conf.AutoTasks {
@@ -469,6 +469,8 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 				}
 			}
 		}
+	} else {
+		log.Printf("\x1b[0;31mUpload failed\x1b[0m\n")
 	}
 
 	// restore the reader for the body
