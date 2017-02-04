@@ -24,17 +24,18 @@ import (
 )
 
 type config struct {
-	HTTP               string                           // The HTTP-binding for listening (IP+Port)
-	SourcesKeysPath    string                           // Path to the public keys of the sources
-	TicketSignKeyPath  string                           // Path to the private key used for signing tickets
-	Organizations      []tasking.Organization           // All the known organizations
-	OwnOrganization    string                           // The name of the own organization (Should also be present in the list "Organizations")
-	StorageURI         string                           // URI of HolmesStorage
-	AutoTasks          map[string](map[string][]string) // Tasks that should be automatically executed on new objects mimetype -> taskname -> args
-	MaxUploadSize      uint32                           // The maximum size of a sample-upload in Megabyte
-	CertificatePath    string
-	CertificateKeyPath string
-	AllowedUsers       []tasking.User
+	HTTP                 string                 // The HTTP-binding for listening (IP+Port)
+	SourcesKeysPath      string                 // Path to the public keys of the sources
+	TicketSignKeyPath    string                 // Path to the private key used for signing tickets
+	Organizations        []tasking.Organization // All the known organizations
+	OwnOrganization      string                 // The name of the own organization (Should also be present in the list "Organizations")
+	StorageURI           string                 // URI of HolmesStorage
+	DisableStorageVerify bool
+	AutoTasks            map[string](map[string][]string) // Tasks that should be automatically executed on new objects mimetype -> taskname -> args
+	MaxUploadSize        uint32                           // The maximum size of a sample-upload in Megabyte
+	CertificatePath      string
+	CertificateKeyPath   string
+	AllowedUsers         []tasking.User
 }
 
 var (
@@ -351,13 +352,33 @@ type myTransport struct {
 }
 
 type storageResult struct {
-	Sha256      string
-	Sha1        string
-	Md5         string
-	Mime        string
-	Source      []string
-	Objname     []string `json:obj_name`
-	Submissions []string
+	Type             string    `json:"type"`
+	CreationDateTime time.Time `json:"creation_date_time"`
+	Submissions      []string  `json:"submissions"`
+	Source           []string  `json:"source"`
+
+	MD5    string `json:"md5"`
+	SHA1   string `json:"sha1"`
+	SHA256 string `json:"sha256"`
+
+	FileMime string   `json:"file_mime"`
+	FileName []string `json:"file_name"`
+
+	DomainFQDN      string `json:"domain_fqdn"`
+	DomainTLD       string `json:"domain_tld"`
+	DomainSubDomain string `json:"domain_sub_domain"`
+
+	IPAddress string `json:"ip_address"`
+	IPv6      bool   `json:"ip_v6"`
+
+	EmailAddress       string `json:"email_address"`
+	EmailLocalPart     string `json:"email_local_part"`
+	EmailDomainPart    string `json:"email_domain_part"`
+	EmailSubAddressing string `json:"email_sub_addressing"`
+
+	GenericIdentifier     string `json:"generic_identifier"`
+	GenericType           string `json:"generic_type"`
+	GenericDataRelAddress string `json:"generic_data_rel_address"`
 }
 
 type storageResponse struct {
@@ -380,11 +401,22 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		log.Println("Upload too large")
 		return resp, nil
 	}
-	reqbuf := make([]byte, request.ContentLength)
-	_, err = io.ReadFull(request.Body, reqbuf)
-	if err != nil {
-		log.Printf("Error reading body!", err)
-		return nil, err
+
+	var reqbuf []byte
+	if request.ContentLength > 0 {
+		reqbuf = make([]byte, request.ContentLength)
+		_, err = io.ReadFull(request.Body, reqbuf)
+		if err != nil {
+			log.Printf("Error reading body!", err)
+			return nil, err
+		}
+	} else {
+		log.Println("ContentLength is negative...")
+		reqbuf, err = ioutil.ReadAll(request.Body)
+		if err != nil {
+			log.Printf("Error reading body!", err)
+			return nil, err
+		}
 	}
 
 	reader := bytes.NewReader(reqbuf)
@@ -422,7 +454,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	// Do the proxy-request
 	trans := http.DefaultTransport.(*http.Transport)
 	// If you want to disable certificate validation, uncomment this line
-	// trans.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	trans.TLSClientConfig = &tls.Config{InsecureSkipVerify: conf.DisableStorageVerify}
 
 	response, err := trans.RoundTrip(request)
 	if err != nil {
@@ -432,12 +464,22 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 
 	// Parse the response. If it was successful, execute automatic tasks
 	var resp storageResponse
-	buf := make([]byte, response.ContentLength)
-
-	_, err = io.ReadFull(response.Body, buf)
-	if err != nil {
-		log.Printf("Error reading body!", err)
-		return nil, err
+	log.Printf("%+v\n", response)
+	var buf []byte
+	if response.ContentLength > 0 {
+		buf = make([]byte, response.ContentLength)
+		_, err = io.ReadFull(response.Body, buf)
+		if err != nil {
+			log.Printf("Error reading body!", err)
+			return nil, err
+		}
+	} else {
+		log.Println("ContentLength is negative...")
+		buf, err = ioutil.ReadAll(response.Body)
+		if err != nil {
+			log.Printf("Error reading body!", err)
+			return nil, err
+		}
 	}
 	rdr := ioutil.NopCloser(bytes.NewReader(buf))
 	defer func() {
@@ -445,16 +487,16 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		response.Body.Close()
 	}()
 	json.Unmarshal(buf, &resp)
-	//log.Printf("%+v\n", resp)
+
 	if resp.ResponseCode == 0 {
-		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.Sha256)
+		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.SHA256)
 		// Execute automatic tasks
 		for t := range conf.AutoTasks {
-			if strings.Contains(resp.Result.Mime, t) {
+			if strings.Contains(resp.Result.FileMime, t) {
 				autotasks := conf.AutoTasks[t]
 				if len(autotasks) != 0 {
 					task := tasking.Task{
-						PrimaryURI:   resp.Result.Sha256,
+						PrimaryURI:   resp.Result.SHA256,
 						SecondaryURI: "",
 						Filename:     name,
 						Tasks:        autotasks,
