@@ -7,9 +7,10 @@
 	"OwnOrganization":   "Org1",
 	"AllowedUsers":      [{"name": "test", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":0},
 	                      {"name": "test2", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":1}],
-	"StorageURI":        "http://localhost:8016/samples/",
+	"StorageURI":        "https://localhost:8016",
+	"DisableStorageVerify": true,
 	"AutoTasks":         {"PE32":{"PEINFO":[],"PEID":[]}, "":{"YARA":[]}},
 	"CertificateKeyPath":"cert-key.pem",
-	"CertificatePath":   "cert.pem"
+	"CertificatePath":   "cert.pem",
 	"MaxUploadSize":     200
 }
