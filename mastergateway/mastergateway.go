@@ -462,6 +462,10 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
+	if response.StatusCode != 200 {
+		log.Printf("Error: Received %d\n", response.StatusCode)
+		return response, err
+	}
 	// Parse the response. If it was successful, execute automatic tasks
 	var resp storageResponse
 	log.Printf("%+v\n", response)
