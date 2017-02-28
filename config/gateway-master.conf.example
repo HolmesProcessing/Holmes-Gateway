@@ -9,7 +9,7 @@
 	                      {"name": "test2", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":1}],
 	"StorageURI":        "http://localhost:8016/samples/",
 	"AutoTasks":         {"PE32":{"PEINFO":[],"PEID":[]}, "":{"YARA":[]}},
-	"CertificateKeyPath":"cert-key.pem",
-	"CertificatePath":   "cert.pem"
+	"CertificateKeyPath":"config/cert-key.pem",
+	"CertificatePath":   "config/cert.pem"
 	"MaxUploadSize":     200
 }

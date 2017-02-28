@@ -25,10 +25,29 @@ This way Slave-Gateway can push long-lasting tasks (usually those that perform d
 
 
 ## USAGE
-### Setup
+### Running Gateway in Docker
+A Dockerfile is provided which will automatically start Gateway and Master-Gateway. In order to use this, you will need to setup the configuration-files config/gateway.conf, config/gateway-master.conf, provide an SSL-certificate and a key, and put your organization-keys into the config/keys-folder. For directions on how to do these, see the instructions in the following sections, as these jobs are the same as without Docker.
+Also make sure that your AMQP-server is working and listening.
+Once this is all set up, you can build and start the container by running
+
+```sh
+docker build -t gateway .
+docker run --net=host -d gateway
+```
+
+To check the logs, you can find out the container's name (docker ps), attach to the container and look at the files "gateway.log" and "master-gateway.log":
+
+```sh
+docker exec -ti $CONTAINER_NAME sh
+cat master-gateway.log
+cat gateway.log
+```
+
+### Setup without Docker
 First build Master-Gateway. Make sure to fetch all missing dependencies with `go get`:
 
 ```sh
+go get ./...
 go build
 ```
 
@@ -36,10 +55,11 @@ go build
 For the SSL-Connection between the user and the Master-Gateway, the Master-Gateway needs to have a valid SSL-Certificate.
 If you don't have one, you can create one by executing
 ```sh
+cd config
 ./mkcert.sh
 ```
 
-Copy the file config-master.json.example to config-master.json and edit it to suit your needs.
+Copy the file config/gateway-master.conf.example to config/gateway-master.conf and edit it to suit your needs.
 The following configuration options are available:
 * **HTTP**: The binding for the http-listener
 * **SourcesKeysPath**: The path to where the public keys of the sources are found. The keys must be in PEM-format and must have the file-extension \*.pub
@@ -68,7 +88,7 @@ Make sure, RabbitMQ is running. If it isn't configured to automatically start, s
 rabbitmq-server
 ```
 
-Copy the file config.json.example to config.json and edit it to suit your needs.
+Copy the file gateway.conf.example to gateway.conf and edit it to suit your needs.
 The following configuration options are available:
 * **HTTP**: The binding for the http-listener
 * **SourcesKeysPath**: The path to where the private keys of the sources are found. The keys must be in PEM-format and must have the file-extension \*.priv
