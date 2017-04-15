@@ -22,7 +22,7 @@ import (
 
 type Ticket struct {
 	Expiration  time.Time
-	Tasks       []Task
+	Tasks       []TaskRequest
 	SignerKeyId string
 	Signature   []byte
 }
@@ -36,7 +36,7 @@ type Encrypted struct {
 	IV             []byte
 }
 
-type Task struct {
+type TaskRequest struct {
 	PrimaryURI   string              `json:"primaryURI"`
 	SecondaryURI string              `json:"secondaryURI"`
 	Filename     string              `json:"filename"`
@@ -78,7 +78,7 @@ type MyError struct {
 }
 
 type TaskError struct {
-	TaskStruct Task
+	TaskStruct TaskRequest
 	Error      MyError
 }
 
