@@ -143,10 +143,13 @@ func requestTaskList(tasks []TaskRequest, org *Organization) (error, []byte) {
 		return err, nil
 	}
 	q := req.URL.Query()
-	q.Add("Tasks", string(tasks_json))
+	q.Add("task", string(tasks_json))
 	req.URL.RawQuery = q.Encode()
 	log.Println(req.URL)
-	client := &http.Client{}
+	//TODO: REMOVE!!!
+	//tr := &http.Transport{}
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	client := &http.Client{Transport: tr}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err, nil
@@ -288,19 +291,12 @@ func httpRequestIncomingSample(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
-func handleTask(tasksStr string, username string, password string) (error, []TaskError) {
+func handleTask(tasks []TaskRequest, username string, password string) (error, []TaskError) {
 	tskerrors := make([]TaskError, 0)
 	// TODO: Maybe we want to store the UID in the task
 	_, err := authenticate(username, password)
 	if err != nil {
 		return err, nil
-	}
-	var tasks []TaskRequest
-	log.Println("Task: ", tasksStr)
-	err = json.Unmarshal([]byte(tasksStr), &tasks)
-	if err != nil {
-		log.Println("Error while unmarshalling tasks: ", err)
-		return err, tskerrors
 	}
 
 	// Submit all the tasks, until all of them are either accepted
@@ -334,18 +330,6 @@ func handleTask(tasksStr string, username string, password string) (error, []Tas
 				}
 				continue
 			}
-			send_to_own := false
-			for _, org := range orgs {
-				if org == ownOrganization {
-					send_to_own = true
-					break
-				}
-			}
-			if send_to_own {
-				handleOwnTasks(tasklist)
-				continue
-			}
-
 			if len(orgs) <= iteration {
 				for _, task := range tasklist {
 					unrecoverableErrors = append(unrecoverableErrors, TaskError{
@@ -354,30 +338,43 @@ func handleTask(tasksStr string, username string, password string) (error, []Tas
 				}
 				continue
 			}
-			org := orgs[iteration]
 
-			err, answerString := requestTaskList(tasklist, org)
-			if err != nil {
-				log.Println("Error while sending tasks: ", err)
-				for task := range tasklist {
-					tskerrors = append(tskerrors, TaskError{
-						TaskStruct: tasklist[task],
-						Error:      MyError{Error: errors.New("Error while sending task! " + err.Error())}})
-				}
-				continue
-			}
 			var answer GatewayAnswer
-			err = json.Unmarshal(answerString, &answer)
-			if err != nil {
-				log.Printf("Error while parsing result")
-				for task := range tasklist {
-					tskerrors = append(tskerrors, TaskError{
-						TaskStruct: tasklist[task],
-						Error:      MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
+			// send the tasks to the given organization and parse the answer
+			var org *Organization
+			org = orgs[iteration]
+			if org == ownOrganization {
+				err, tskerrors := handleOwnTasks(tasklist)
+				answer = GatewayAnswer{
+					Error:     err,
+					TskErrors: tskerrors,
 				}
-				continue
+			} else {
+				err, answerString := requestTaskList(tasklist, org)
+				if err != nil {
+					log.Println("Error while sending tasks: ", err)
+					for task := range tasklist {
+						tskerrors = append(tskerrors, TaskError{
+							TaskStruct: tasklist[task],
+							Error:      MyError{Error: errors.New("Error while sending task! " + err.Error())}})
+					}
+					continue
+				}
+				err = json.Unmarshal(answerString, &answer)
+				if err != nil {
+					log.Printf("Error while parsing result", err)
+					for task := range tasklist {
+						tskerrors = append(tskerrors, TaskError{
+							TaskStruct: tasklist[task],
+							Error:      MyError{Error: errors.New("Error while parsing result! " + err.Error())}})
+					}
+					continue
 
-			} else if answer.Error != nil {
+				}
+			}
+
+			// The answer contained an error
+			if answer.Error != nil {
 				log.Printf("Error: ", answer.Error)
 				for task := range tasklist {
 					tskerrors = append(tskerrors, TaskError{
@@ -570,12 +567,19 @@ func handleOwnTasks(tasks []TaskRequest) (*MyError, []TaskError) {
 	return nil, tskerrors
 }
 
-//TODO: Merge with gateway.go/httpRequestIncoming
 func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
-	task := r.FormValue("task")
+	taskStr := r.FormValue("task")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
-	err, tskerrors := handleTask(task, username, password)
+	var tasks []TaskRequest
+	log.Println("Task: ", taskStr)
+	err := json.Unmarshal([]byte(taskStr), &tasks)
+	if err != nil {
+		log.Println("Error while unmarshalling tasks: ", err)
+		http.Error(w, err.Error(), 500)
+	}
+
+	err, tskerrors := handleTask(tasks, username, password)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, err.Error(), 500)
@@ -591,17 +595,27 @@ func httpRequestIncomingTask(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("\n\n"))
 		}
 	}
+}
 
-	//vs:
-	/*
-		err, tskerrors := handleOwnTasks(task)
-		answer := GatewayAnser{
-			Error: err,
-			TskErrors: tskerrors,
-		}
-		x, _ := json.Marshal(answer)
-		w.Write(x)
-	*/
+func httpRequestIncomingTaskForeign(w http.ResponseWriter, r *http.Request) {
+	taskStr := r.FormValue("task")
+	var tasks []TaskRequest
+	log.Println("Task: ", taskStr)
+	err := json.Unmarshal([]byte(taskStr), &tasks)
+	if err != nil {
+		log.Println("Error while unmarshalling tasks: ", err)
+		http.Error(w, err.Error(), 500)
+	}
+
+	myerr, tskerrors := handleOwnTasks(tasks)
+	answer := GatewayAnswer{
+		Error:     myerr,
+		TskErrors: tskerrors,
+	}
+	answer_json, _ := json.Marshal(answer)
+	w.Write(answer_json)
+	log.Println(string(answer_json))
+
 }
 
 func initHTTP() {
@@ -631,6 +645,7 @@ func initHTTP() {
 
 	// productive routes
 	mux.HandleFunc("/task/", httpRequestIncomingTask)
+	mux.HandleFunc("/task_foreign/", httpRequestIncomingTaskForeign)
 	mux.HandleFunc("/samples/", httpRequestIncomingSample)
 
 	// storage proxy
@@ -653,6 +668,7 @@ func initHTTP() {
 func initSourceRouting() {
 	// Goes through all the organizations in the configuration-file, looks, what sources
 	// they have, and creates the mapping srcRouter (source -> []organization)
+	// Own organization is always first
 
 	//TODO: make this dynamically configurable
 	ownOrganization = nil
@@ -661,16 +677,23 @@ func initSourceRouting() {
 	log.Println("=====")
 	for num, org := range conf.Organizations {
 		log.Println(org)
+		if org.Name == conf.OwnOrganization {
+			ownOrganization = &conf.Organizations[num]
+		}
+
 		for _, src := range org.Sources {
 			routes, exists := srcRouter[src]
 			if !exists {
 				srcRouter[src] = []*Organization{&conf.Organizations[num]}
 			} else {
-				srcRouter[src] = append(routes, &conf.Organizations[num])
+				if &org == ownOrganization {
+					// prepend
+					srcRouter[src] = append([]*Organization{&conf.Organizations[num]}, routes...)
+				} else {
+					// append
+					srcRouter[src] = append(routes, &conf.Organizations[num])
+				}
 			}
-		}
-		if org.Name == conf.OwnOrganization {
-			ownOrganization = &conf.Organizations[num]
 		}
 	}
 	log.Println("=====")
