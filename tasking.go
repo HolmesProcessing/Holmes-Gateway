@@ -290,9 +290,9 @@ func handleOwnTasks(tasks []TaskRequest) (*MyError, []TaskError) {
 		} else {
 			savedPrimaryURI := task.PrimaryURI
 			savedSecondaryURI := task.SecondaryURI
-			task.PrimaryURI = conf.StorageSampleURI + task.PrimaryURI
+			task.PrimaryURI = conf.StorageSampleURI + "get/" + task.PrimaryURI
 			if task.SecondaryURI != "" {
-				task.SecondaryURI = conf.StorageSampleURI + task.SecondaryURI
+				task.SecondaryURI = conf.StorageSampleURI + "get/" + task.SecondaryURI
 			}
 			myerr := pushToTransport(task)
 			if myerr != nil {

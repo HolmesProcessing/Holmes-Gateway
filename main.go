@@ -31,15 +31,17 @@ type config struct {
 	CertificateKeyPath string
 	AllowedUsers       []User
 
+	DisableStorageVerify bool
+
 	AMQP          string
 	AMQPDefault   AMQPConf
 	AMQPSplitting map[string]AMQPConf
 }
 
 var (
-	conf       *config          // The configuration struct
-	storageURI url.URL          // The URL to storage for redirecting object-storage requests
-	users      map[string]*User // Map: Username -> User-struct (TODO: Move to storage)
+	conf                  *config          // The configuration struct
+	storageURIStoreSample url.URL          // The URL to storage for redirecting object-storage requests
+	users                 map[string]*User // Map: Username -> User-struct (TODO: Move to storage)
 )
 
 func initHTTP() {
@@ -73,8 +75,9 @@ func initHTTP() {
 	mux.HandleFunc("/samples/", httpRequestIncomingSample)
 
 	// storage proxy
-	storageURI, _ := url.Parse(conf.StorageSampleURI)
-	proxy = httputil.NewSingleHostReverseProxy(storageURI)
+	uri, _ := url.Parse(conf.StorageSampleURI + "store")
+	storageURIStoreSample = *uri
+	proxy = httputil.NewSingleHostReverseProxy(uri)
 	proxy.Transport = &myTransport{}
 
 	// server settings
@@ -103,7 +106,7 @@ func authenticate(username string, password string) (*User, error) {
 	if !exists {
 		// compare some dummy value to prevent timing based attack
 		bcrypt.CompareHashAndPassword([]byte("$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa"), []byte(password))
-		log.Println("User does not exist")
+		log.Printf("User '%s' does not exist", username)
 		return nil, errors.New("Authentication failed")
 	}
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
@@ -127,7 +130,7 @@ func main() {
 	}
 
 	// Read config
-	conf = &config{MaxUploadSize: 200}
+	conf = &config{MaxUploadSize: 200, DisableStorageVerify: false}
 	cfile, _ := os.Open(confPath)
 	err := json.NewDecoder(cfile).Decode(&conf)
 	FailOnError(err, "Couldn't read config file")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -11,18 +12,39 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var proxy *httputil.ReverseProxy // The proxy object for redirecting object-storage requests
 
 type storageResult struct {
-	Sha256      string
-	Sha1        string
-	Md5         string
-	Mime        string
-	Source      []string
-	Objname     []string `json:obj_name`
-	Submissions []string
+	Type             string    `json:"type"`
+	CreationDateTime time.Time `json:"creation_date_time"`
+	Submissions      []string  `json:"submissions"`
+	Source           []string  `json:"source"`
+
+	MD5    string `json:"md5"`
+	SHA1   string `json:"sha1"`
+	SHA256 string `json:"sha256"`
+
+	FileMime string   `json:"file_mime"`
+	FileName []string `json:file_name"`
+
+	DomainFQDN      string `json:"domain_fqdn"`
+	DomainTLD       string `json:"domain_tld"`
+	DomainSubDomain string `json:"domain_sub_domain"`
+
+	IPAddress string `json:"ip_address"`
+	IPv6      bool   `json:"ip_v6"`
+
+	EmailAddress       string `json:"email_address"`
+	EmailLocalPart     string `json:"email_local_part"`
+	EmailDomainPart    string `json:"email_domain_part"`
+	EmailSubAddressing string `json:"email_sub_addressing"`
+
+	GenericIdentifier     string `json:"generic_identifier"`
+	GenericType           string `json:"generic_type"`
+	GenericDataRelAddress string `json:"generic_data_rel_address"`
 }
 
 type storageResponse struct {
@@ -75,6 +97,8 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	username := request.FormValue("username")
 	password := request.FormValue("password")
 
+	*request.URL = storageURIStoreSample
+
 	// restore the reader for the body
 	reader.Seek(0, 0)
 
@@ -86,7 +110,11 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	form, _ := url.ParseQuery(request.URL.RawQuery)
 	form.Set("user_id", strconv.Itoa(user.Id))
 	request.URL.RawQuery = form.Encode()
+
 	// Do the proxy-request
+	trans := http.DefaultTransport.(*http.Transport)
+	trans.TLSClientConfig = &tls.Config{InsecureSkipVerify: conf.DisableStorageVerify}
+
 	response, err := http.DefaultTransport.RoundTrip(request)
 	if err != nil {
 		log.Printf("Error performing proxy-request!", err)
@@ -109,15 +137,15 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}()
 	json.Unmarshal(buf, &resp)
 	//log.Printf("%+v\n", resp)
-	if resp.ResponseCode == 1 {
-		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.Sha256)
+	if resp.ResponseCode == 0 {
+		log.Printf("\x1b[0;32mSuccessfully uploaded sample with SHA256: %s\x1b[0m", resp.Result.SHA256)
 		// Execute automatic tasks
 		for t := range conf.AutoTasks {
-			if strings.Contains(resp.Result.Mime, t) {
+			if strings.Contains(resp.Result.FileMime, t) {
 				autotasks := conf.AutoTasks[t]
 				if len(autotasks) != 0 {
 					task := TaskRequest{
-						PrimaryURI:   resp.Result.Sha256,
+						PrimaryURI:   resp.Result.SHA256,
 						SecondaryURI: "",
 						Filename:     name,
 						Tasks:        autotasks,
@@ -128,9 +156,14 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 					}
 
 					log.Printf("\x1b[0;33mAutomatically executing %+v\x1b[0m\n", task)
-					requestTaskList([]TaskRequest{task}, ownOrganization)
+					handleOwnTasks([]TaskRequest{task})
 				}
 			}
+		}
+	} else {
+		log.Printf("\x1b[0;31mUpload failed\x1b[0m\n")
+		if response.StatusCode == 200 {
+			response.StatusCode = 400 // bad request
 		}
 	}
 
@@ -140,8 +173,5 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 }
 
 func httpRequestIncomingSample(w http.ResponseWriter, r *http.Request) {
-	log.Println(r.URL)
-	*r.URL = storageURI
-
 	proxy.ServeHTTP(w, r)
 }
