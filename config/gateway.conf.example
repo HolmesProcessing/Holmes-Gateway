@@ -10,6 +10,7 @@
 	"CertificateKeyPath":"config/cert-key.pem",
 	"CertificatePath":   "config/cert.pem",
 	"MaxUploadSize":     200,
+	"AllowForeignTasks": false,
 
 	"AMQP":               "amqp://guest:guest@localhost:5672/",
 	"AMQPDefault":       {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},

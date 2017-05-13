@@ -33,6 +33,8 @@ type config struct {
 
 	DisableStorageVerify bool
 
+	AllowForeignTasks bool
+
 	AMQP          string
 	AMQPDefault   AMQPConf
 	AMQPSplitting map[string]AMQPConf
@@ -71,7 +73,9 @@ func initHTTP() {
 
 	// productive routes
 	mux.HandleFunc("/task/", httpRequestIncomingTask)
-	mux.HandleFunc("/task_foreign/", httpRequestIncomingTaskForeign)
+	if conf.AllowForeignTasks {
+		mux.HandleFunc("/task_foreign/", httpRequestIncomingTaskForeign)
+	}
 	mux.HandleFunc("/samples/", httpRequestIncomingSample)
 
 	// storage proxy
@@ -130,7 +134,7 @@ func main() {
 	}
 
 	// Read config
-	conf = &config{MaxUploadSize: 200, DisableStorageVerify: false}
+	conf = &config{MaxUploadSize: 200, DisableStorageVerify: false, AllowForeignTasks: false}
 	cfile, _ := os.Open(confPath)
 	err := json.NewDecoder(cfile).Decode(&conf)
 	FailOnError(err, "Couldn't read config file")

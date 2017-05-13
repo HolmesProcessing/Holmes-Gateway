@@ -48,6 +48,7 @@ The following configuration options are available:
 **NOTE:** The library used for checking the passwords does not support all the possible algorithms for bcrypt. To make sure that your passwords are accepted, it is recommended to use blowfish (hash starts with "$2a$").
 * **AutoTasks**: A dict mapping the mimetype to a dict of tasks, that should be executed automatically whenever a sample is uploaded. The mimetype returned by storage is checked against every value in the dict. If the value from the dict is contained in the returned value, all the corresponding tasks are executed. e.g.: `{"PE32":{"PEID":[]}, "":{"YARA":[]}}` means that for every uploaded file the service "YARA" is executed (since every string contains ""). Additionally, files with a memetype, which contains "PE32", the service "PEID" is executed.
 * **DisableStorageVerify**: If set to true, the certificate of Holmes-Storage is not checked for validity
+* **AllowForeignTasks**: If set to true, tasks from other gateways will be accepted, otherwise only tasks sent from authenticated users will be accepted. Note that at the moment, it is not possible to configure a more fine grained ACL-concept
 * **CertificateKeyPath**: The path to the key of the HTTPS-certificate
 * **CertificatePath**: The path to the HTTPS-certificate
 * **MaxUploadSize**: The maximum allowed size in MB for uploading samples. Defaults to 200 MB, if no value is configured
