@@ -9,7 +9,7 @@
 	"DisableStorageVerify": true,
 	"CertificateKeyPath":"config/cert-key.pem",
 	"CertificatePath":   "config/cert.pem",
-	"MaxUploadSize":     39,
+	"MaxUploadSize":     200,
 
 	"AMQP":               "amqp://guest:guest@localhost:5672/",
 	"AMQPDefault":       {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},

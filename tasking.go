@@ -347,7 +347,7 @@ func httpRequestIncomingTaskForeign(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error while unmarshalling tasks: ", err)
 		http.Error(w, err.Error(), 500)
 	}
-
+	//TODO: Some form of ACL-checking...
 	myerr, tskerrors := handleOwnTasks(tasks)
 	answer := GatewayAnswer{
 		Error:     myerr,
