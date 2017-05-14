@@ -10,6 +10,6 @@
 	"StorageURI":        "http://localhost:8016/samples/",
 	"AutoTasks":         {"PE32":{"PEINFO":[],"PEID":[]}, "":{"YARA":[]}},
 	"CertificateKeyPath":"cert-key.pem",
-	"CertificatePath":   "cert.pem"
+	"CertificatePath":   "cert.pem",
 	"MaxUploadSize":     200
 }
