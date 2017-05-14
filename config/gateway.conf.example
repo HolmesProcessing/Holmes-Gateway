@@ -1,14 +1,20 @@
 {
-	"HTTP":               ":8080",
-	"SourcesKeysPath":    "config/keys/sources/",
-	"TicketKeysPath":     "config/keys/tickets/",
-	"SampleStorageURI":   "http://localhost:8016/samples/",
-	"AllowedTasks":       {"org1": ["*"], "org2": ["PEINFO"]},
-	"RabbitURI":          "localhost:5672/",
-	"RabbitUser":         "guest",
-	"RabbitPassword":     "guest",
-	"RabbitDefault":      {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},
-	"Rabbit":             {"CUCKOO":     {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
-                           "DRAKVUF":    {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
-                           "VIRUSTOTAL": {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"}}
+	"HTTP":               ":8090",
+	"StorageSampleURI":   "https://localhost:8016/sample/",
+	"Organizations":      [{"Name": "Org1", "Sources": ["src1", "src2"]},{"Name": "Org2", "Uri": "https://localhost:8090", "Sources": ["src1", "src2"]}],
+	"OwnOrganization":    "Org1",
+	"AllowedUsers":       [{"name": "test", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":0},
+	                      {"name": "test2", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":1}],
+	"AutoTasks":         {"PE":{"PEID":[]}, "":{"YARA":[]}},
+	"DisableStorageVerify": true,
+	"CertificateKeyPath":"config/cert-key.pem",
+	"CertificatePath":   "config/cert.pem",
+	"MaxUploadSize":     200,
+	"AllowForeignTasks": false,
+
+	"AMQP":               "amqp://guest:guest@localhost:5672/",
+	"AMQPDefault":       {"Queue": "totem_input", "Exchange": "totem", "RoutingKey": "work.static.totem"},
+	"AMQPSplitting":     {"CUCKOO":     {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
+                          "DRAKVUF":    {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"},
+                          "VIRUSTOTAL": {"Queue": "totem_dynamic_input", "Exchange": "totem_dynamic", "RoutingKey": "work.static.totem"}}
 }
