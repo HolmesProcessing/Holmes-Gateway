@@ -445,7 +445,7 @@ func (t *myTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	request.URL, err = url.Parse(request.URL.String() + "sample/store")
+	request.URL, err = url.Parse(request.URL.String() + "api/v2/raw_data/")
 
 	form, _ := url.ParseQuery(request.URL.RawQuery)
 	form.Set("user_id", strconv.Itoa(user.Id))
