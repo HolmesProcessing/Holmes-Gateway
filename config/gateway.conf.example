@@ -2,7 +2,7 @@
 	"HTTP":               ":8080",
 	"SourcesKeysPath":    "config/keys/sources/",
 	"TicketKeysPath":     "config/keys/tickets/",
-	"SampleStorageURI":   "http://localhost:8016/samples/",
+	"SampleStorageURI":   "http://localhost:8016/api/v2/raw_data/",
 	"AllowedTasks":       {"org1": ["*"], "org2": ["PEINFO"]},
 	"RabbitURI":          "localhost:5672/",
 	"RabbitUser":         "guest",
