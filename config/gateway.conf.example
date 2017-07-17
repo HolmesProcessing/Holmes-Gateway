@@ -1,6 +1,6 @@
 {
 	"HTTP":               ":8090",
-	"StorageSampleURI":   "https://localhost:8016/sample/",
+	"StorageSampleURI":   "https://localhost:8016/api/v2/raw_data/",
 	"Organizations":      [{"Name": "Org1", "Sources": ["src1", "src2"]},{"Name": "Org2", "Uri": "https://localhost:8090", "Sources": ["src1", "src2"]}],
 	"OwnOrganization":    "Org1",
 	"AllowedUsers":       [{"name": "test", "pw":"$2a$06$fLcXyZd6xs60iPj8sBXf8exGfcIMnxZWHH5Eyf1.fwkSnuNq0h6Aa", "id":0},
