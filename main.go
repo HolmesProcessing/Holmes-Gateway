@@ -79,7 +79,7 @@ func initHTTP() {
 	mux.HandleFunc("/samples/", httpRequestIncomingSample)
 
 	// storage proxy
-	uri, _ := url.Parse(conf.StorageSampleURI + "store")
+	uri, _ := url.Parse(conf.StorageSampleURI)
 	storageURIStoreSample = *uri
 	proxy = httputil.NewSingleHostReverseProxy(uri)
 	proxy.Transport = &myTransport{}
